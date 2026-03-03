@@ -1,0 +1,368 @@
+---
+title: Video Events
+description: Events fired when recording videos with the camera
+---
+
+Video events are fired when the user records a video or cancels the video recording operation.
+
+## VideoRecorded
+
+Fired when a video is successfully recorded with the camera.
+
+**Event Class:** `Native\Mobile\Events\Camera\VideoRecorded`
+
+### Payload
+
+<ResponseField name="path" type="string" required>
+  Absolute file path to the recorded video. The video is saved as an MP4 file in the app's temporary directory.
+</ResponseField>
+
+<ResponseField name="mimeType" type="string" required>
+  MIME type of the recorded video. Typically `video/mp4` or `video/mov` depending on the platform.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  Optional identifier if set via the `id()` method when triggering the camera.
+</ResponseField>
+
+### Examples
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\VideoRecorded;
+    use Native\Mobile\Facades\Camera;
+
+    class VideoRecorder extends Component
+    {
+        public string $videoPath = '';
+        public bool $isProcessing = false;
+
+        public function recordVideo()
+        {
+            Camera::recordVideo()
+                ->maxDuration(60)
+                ->id('tutorial-video')
+                ->start();
+        }
+
+        #[OnNative(VideoRecorded::class)]
+        public function handleVideoRecorded(string $path, string $mimeType, ?string $id = null)
+        {
+            $this->isProcessing = true;
+
+            // Save the video path
+            $this->videoPath = $path;
+
+            // Process the video
+            $this->processVideo($path, $mimeType);
+
+            $this->isProcessing = false;
+
+            session()->flash('message', 'Video recorded successfully!');
+        }
+
+        private function processVideo(string $path, string $mimeType)
+        {
+            // Read the file contents
+            $contents = file_get_contents($path);
+
+            // Upload to storage
+            $filename = 'videos/' . basename($path);
+            Storage::disk('s3')->put($filename, $contents);
+
+            // Save to database
+            Video::create([
+                'path' => $filename,
+                'mime_type' => $mimeType,
+                'size' => filesize($path)
+            ]);
+
+            // Clean up temporary file
+            unlink($path);
+        }
+    }
+    ```
+  </Tab>
+  <Tab title="Vue">
+    ```vue
+    <script setup>
+    import { ref, onMounted, onUnmounted } from 'vue';
+    import { Camera, On, Off, Events } from '#nativephp';
+
+    const videoPath = ref('');
+    const isProcessing = ref(false);
+    const uploadProgress = ref(0);
+
+    const recordVideo = async () => {
+        await Camera.recordVideo()
+            .maxDuration(60)
+            .id('tutorial-video');
+    };
+
+    const handleVideoRecorded = async (payload) => {
+        isProcessing.value = true;
+
+        // Save video path
+        videoPath.value = payload.path;
+
+        // Upload the video
+        await uploadVideo(payload.path, payload.mimeType);
+
+        isProcessing.value = false;
+    };
+
+    const uploadVideo = async (path, mimeType) => {
+        // Read file and upload with progress tracking
+        const response = await fetch(path);
+        const blob = await response.blob();
+
+        const formData = new FormData();
+        formData.append('video', blob, 'video.mp4');
+        formData.append('mimeType', mimeType);
+
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) {
+                uploadProgress.value = (e.loaded / e.total) * 100;
+            }
+        });
+
+        return new Promise((resolve, reject) => {
+            xhr.addEventListener('load', () => resolve(xhr.response));
+            xhr.addEventListener('error', () => reject(xhr.statusText));
+            xhr.open('POST', '/api/videos');
+            xhr.send(formData);
+        });
+    };
+
+    onMounted(() => {
+        On(Events.Camera.VideoRecorded, handleVideoRecorded);
+    });
+
+    onUnmounted(() => {
+        Off(Events.Camera.VideoRecorded, handleVideoRecorded);
+    });
+    </script>
+
+    <template>
+        <div>
+            <button @click="recordVideo">Record Video</button>
+            <video v-if="videoPath" :src="videoPath" controls></video>
+            <div v-if="isProcessing">
+                <p>Uploading video...</p>
+                <progress :value="uploadProgress" max="100"></progress>
+            </div>
+        </div>
+    </template>
+    ```
+  </Tab>
+  <Tab title="React">
+    ```jsx
+    import { useEffect, useState } from 'react';
+    import { Camera, On, Off, Events } from '#nativephp';
+
+    function VideoRecorder() {
+        const [videoPath, setVideoPath] = useState('');
+        const [isProcessing, setIsProcessing] = useState(false);
+        const [uploadProgress, setUploadProgress] = useState(0);
+
+        const recordVideo = async () => {
+            await Camera.recordVideo()
+                .maxDuration(60)
+                .id('tutorial-video');
+        };
+
+        useEffect(() => {
+            const handleVideoRecorded = async (payload) => {
+                setIsProcessing(true);
+
+                // Save video path
+                setVideoPath(payload.path);
+
+                // Upload the video
+                await uploadVideo(payload.path, payload.mimeType);
+
+                setIsProcessing(false);
+            };
+
+            On(Events.Camera.VideoRecorded, handleVideoRecorded);
+
+            return () => {
+                Off(Events.Camera.VideoRecorded, handleVideoRecorded);
+            };
+        }, []);
+
+        const uploadVideo = async (path, mimeType) => {
+            const response = await fetch(path);
+            const blob = await response.blob();
+
+            const formData = new FormData();
+            formData.append('video', blob, 'video.mp4');
+            formData.append('mimeType', mimeType);
+
+            const xhr = new XMLHttpRequest();
+
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable) {
+                    setUploadProgress((e.loaded / e.total) * 100);
+                }
+            });
+
+            return new Promise((resolve, reject) => {
+                xhr.addEventListener('load', () => resolve(xhr.response));
+                xhr.addEventListener('error', () => reject(xhr.statusText));
+                xhr.open('POST', '/api/videos');
+                xhr.send(formData);
+            });
+        };
+
+        return (
+            <div>
+                <button onClick={recordVideo}>Record Video</button>
+                {videoPath && <video src={videoPath} controls />}
+                {isProcessing && (
+                    <div>
+                        <p>Uploading video...</p>
+                        <progress value={uploadProgress} max="100" />
+                    </div>
+                )}
+            </div>
+        );
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Recording with Duration Limit
+
+Set a maximum recording duration to automatically stop recording:
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    // Record for maximum 30 seconds
+    Camera::recordVideo()->maxDuration(30)->start();
+
+    // Handle the recorded video
+    #[OnNative(VideoRecorded::class)]
+    public function handleVideoRecorded(string $path, string $mimeType, ?string $id = null)
+    {
+        // Video will be at most 30 seconds long
+        $this->processVideo($path);
+    }
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    // Record for maximum 30 seconds
+    await Camera.recordVideo().maxDuration(30);
+
+    // Handle the recorded video
+    On(Events.Camera.VideoRecorded, (payload) => {
+        // Video will be at most 30 seconds long
+        processVideo(payload.path);
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## VideoCancelled
+
+Fired when the user cancels the video recording operation by dismissing the camera interface.
+
+**Event Class:** `Native\Mobile\Events\Camera\VideoCancelled`
+
+### Payload
+
+<ResponseField name="cancelled" type="boolean" required>
+  Always `true`, indicating the operation was cancelled.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  Optional identifier if set via the `id()` method when triggering the camera.
+</ResponseField>
+
+### Examples
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\VideoCancelled;
+
+    #[OnNative(VideoCancelled::class)]
+    public function handleVideoCancelled(?string $id = null)
+    {
+        // Log cancellation
+        Log::info('Video recording cancelled', ['id' => $id]);
+
+        // Show message to user
+        session()->flash('info', 'Video recording was cancelled');
+
+        // Reset UI state
+        $this->isRecording = false;
+        $this->recordingDuration = 0;
+    }
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    import { On, Events } from '#nativephp';
+
+    On(Events.Camera.VideoCancelled, (payload) => {
+        console.log('Video recording cancelled', payload.id);
+
+        // Show message
+        showNotification('Video recording was cancelled');
+
+        // Reset UI state
+        setIsRecording(false);
+        setRecordingDuration(0);
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## File Storage
+
+Videos are stored in the app's temporary directory with a unique timestamp-based filename:
+
+- **iOS:** `~/Library/Application Support/Videos/captured_video_{timestamp}.mp4`
+- **Android:** `{cache}/video_{timestamp}.mp4`
+
+<Warning>
+  Videos in the temporary directory may be deleted by the system. Always move or upload important videos to permanent storage immediately.
+</Warning>
+
+## File Sizes
+
+Video files can be large, especially for longer recordings. Consider:
+
+- Setting appropriate `maxDuration` limits
+- Showing upload progress to users
+- Implementing background uploads
+- Compressing videos before upload if needed
+
+```php
+// Example: Get video file size
+#[OnNative(VideoRecorded::class)]
+public function handleVideoRecorded(string $path, string $mimeType, ?string $id = null)
+{
+    $fileSizeInMB = filesize($path) / 1024 / 1024;
+
+    if ($fileSizeInMB > 50) {
+        session()->flash('warning', 'Video is large and may take time to upload');
+    }
+
+    $this->processVideo($path);
+}
+```
+
+## Related
+
+- [Photo Events](/events/photo-events) - Handle photo capture events
+- [Gallery Events](/events/gallery-events) - Handle media selection from gallery
+- [Video API](/api/video) - Record videos with the camera

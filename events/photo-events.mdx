@@ -1,0 +1,297 @@
+---
+title: Photo Events
+description: Events fired when capturing photos with the camera
+---
+
+Photo events are fired when the user captures a photo or cancels the photo capture operation.
+
+## PhotoTaken
+
+Fired when a photo is successfully captured with the camera.
+
+**Event Class:** `Native\Mobile\Events\Camera\PhotoTaken`
+
+### Payload
+
+<ResponseField name="path" type="string" required>
+  Absolute file path to the captured photo. The photo is saved as a JPEG file in the app's temporary directory.
+</ResponseField>
+
+<ResponseField name="mimeType" type="string" required>
+  MIME type of the captured photo. Always `image/jpeg` for photos.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  Optional identifier if set via the `id()` method when triggering the camera.
+</ResponseField>
+
+### Examples
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\PhotoTaken;
+    use Native\Mobile\Facades\Camera;
+
+    class PhotoCapture extends Component
+    {
+        public string $photoPath = '';
+
+        public function capturePhoto()
+        {
+            Camera::getPhoto();
+        }
+
+        #[OnNative(PhotoTaken::class)]
+        public function handlePhotoTaken(string $path, string $mimeType, ?string $id = null)
+        {
+            // Save the photo path
+            $this->photoPath = $path;
+
+            // Process the photo (upload, resize, etc.)
+            $this->processPhoto($path);
+
+            // Show success message
+            session()->flash('message', 'Photo captured successfully!');
+        }
+
+        private function processPhoto(string $path)
+        {
+            // Read the file contents
+            $contents = file_get_contents($path);
+
+            // Upload to storage
+            Storage::disk('s3')->put('photos/photo.jpg', $contents);
+
+            // Clean up temporary file
+            unlink($path);
+        }
+    }
+    ```
+  </Tab>
+  <Tab title="Vue">
+    ```vue
+    <script setup>
+    import { ref, onMounted, onUnmounted } from 'vue';
+    import { Camera, On, Off, Events } from '#nativephp';
+
+    const photoPath = ref('');
+    const isProcessing = ref(false);
+
+    const capturePhoto = async () => {
+        await Camera.getPhoto();
+    };
+
+    const handlePhotoTaken = async (payload) => {
+        isProcessing.value = true;
+
+        // Save photo path
+        photoPath.value = payload.path;
+
+        // Upload the photo
+        await uploadPhoto(payload.path);
+
+        isProcessing.value = false;
+    };
+
+    const uploadPhoto = async (path) => {
+        // Read file and upload
+        const response = await fetch(path);
+        const blob = await response.blob();
+
+        const formData = new FormData();
+        formData.append('photo', blob, 'photo.jpg');
+
+        await fetch('/api/photos', {
+            method: 'POST',
+            body: formData
+        });
+    };
+
+    onMounted(() => {
+        On(Events.Camera.PhotoTaken, handlePhotoTaken);
+    });
+
+    onUnmounted(() => {
+        Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+    });
+    </script>
+
+    <template>
+        <div>
+            <button @click="capturePhoto">Take Photo</button>
+            <img v-if="photoPath" :src="photoPath" alt="Captured photo" />
+            <p v-if="isProcessing">Processing photo...</p>
+        </div>
+    </template>
+    ```
+  </Tab>
+  <Tab title="React">
+    ```jsx
+    import { useEffect, useState } from 'react';
+    import { Camera, On, Off, Events } from '#nativephp';
+
+    function PhotoCapture() {
+        const [photoPath, setPhotoPath] = useState('');
+        const [isProcessing, setIsProcessing] = useState(false);
+
+        const capturePhoto = async () => {
+            await Camera.getPhoto();
+        };
+
+        useEffect(() => {
+            const handlePhotoTaken = async (payload) => {
+                setIsProcessing(true);
+
+                // Save photo path
+                setPhotoPath(payload.path);
+
+                // Upload the photo
+                await uploadPhoto(payload.path);
+
+                setIsProcessing(false);
+            };
+
+            On(Events.Camera.PhotoTaken, handlePhotoTaken);
+
+            return () => {
+                Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+            };
+        }, []);
+
+        const uploadPhoto = async (path) => {
+            const response = await fetch(path);
+            const blob = await response.blob();
+
+            const formData = new FormData();
+            formData.append('photo', blob, 'photo.jpg');
+
+            await fetch('/api/photos', {
+                method: 'POST',
+                body: formData
+            });
+        };
+
+        return (
+            <div>
+                <button onClick={capturePhoto}>Take Photo</button>
+                {photoPath && <img src={photoPath} alt="Captured photo" />}
+                {isProcessing && <p>Processing photo...</p>}
+            </div>
+        );
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Tracking with IDs
+
+Use the `id()` method to track specific photo captures:
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    // Capture with ID
+    Camera::getPhoto()->id('profile-picture')->start();
+
+    // Handle with ID
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhotoTaken(string $path, string $mimeType, ?string $id = null)
+    {
+        if ($id === 'profile-picture') {
+            $this->updateProfilePicture($path);
+        } elseif ($id === 'document-scan') {
+            $this->processDocument($path);
+        }
+    }
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    // Capture with ID
+    await Camera.getPhoto().id('profile-picture');
+
+    // Handle with ID
+    On(Events.Camera.PhotoTaken, (payload) => {
+        if (payload.id === 'profile-picture') {
+            updateProfilePicture(payload.path);
+        } else if (payload.id === 'document-scan') {
+            processDocument(payload.path);
+        }
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## PhotoCancelled
+
+Fired when the user cancels the photo capture operation by dismissing the camera interface.
+
+**Event Class:** `Native\Mobile\Events\Camera\PhotoCancelled`
+
+### Payload
+
+<ResponseField name="cancelled" type="boolean" required>
+  Always `true`, indicating the operation was cancelled.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  Optional identifier if set via the `id()` method when triggering the camera.
+</ResponseField>
+
+### Examples
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\PhotoCancelled;
+
+    #[OnNative(PhotoCancelled::class)]
+    public function handlePhotoCancelled(?string $id = null)
+    {
+        // Log cancellation
+        Log::info('Photo capture cancelled', ['id' => $id]);
+
+        // Show message to user
+        session()->flash('info', 'Photo capture was cancelled');
+
+        // Reset UI state
+        $this->isCapturing = false;
+    }
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    import { On, Events } from '#nativephp';
+
+    On(Events.Camera.PhotoCancelled, (payload) => {
+        console.log('Photo capture cancelled', payload.id);
+
+        // Show message
+        showNotification('Photo capture was cancelled');
+
+        // Reset UI state
+        setIsCapturing(false);
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## File Storage
+
+Photos are stored in the app's temporary directory with a unique timestamp-based filename:
+
+- **iOS:** `~/Library/Application Support/Photos/captured_photo_{timestamp}.jpg`
+- **Android:** `{cache}/captured_photo_{timestamp}.jpg`
+
+<Warning>
+  Photos in the temporary directory may be deleted by the system. Always move or upload important photos to permanent storage.
+</Warning>
+
+## Related
+
+- [Video Events](/events/video-events) - Handle video recording events
+- [Gallery Events](/events/gallery-events) - Handle media selection from gallery
+- [Photo API](/api/photo) - Capture photos with the camera

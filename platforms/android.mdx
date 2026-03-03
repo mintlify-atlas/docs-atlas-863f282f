@@ -1,0 +1,160 @@
+---
+title: Android Platform
+description: Android-specific configuration and implementation details for the NativePHP Mobile Camera plugin
+---
+
+## Overview
+
+The Camera plugin for Android is implemented in Kotlin and provides native camera functionality through Android's camera APIs. The plugin requires specific permissions, services, and minimum SDK configurations.
+
+## Requirements
+
+### Minimum SDK Version
+
+The Camera plugin requires **Android API Level 33** (Android 13.0) or higher.
+
+```json
+"min_version": 33
+```
+
+### Required Permissions
+
+The following permissions are automatically added to your app's `AndroidManifest.xml` when the plugin is registered:
+
+```xml
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE" />
+```
+
+<Note>
+The `RECORD_AUDIO` permission is required for video recording with audio. If your app only uses photo capture, the audio permission will still be requested but won't be used.
+</Note>
+
+### Foreground Service
+
+The plugin registers a foreground service for camera operations:
+
+```xml
+<service
+    android:name=".CameraForegroundService"
+    android:foregroundServiceType="shortService"
+    android:exported="false" />
+```
+
+This service ensures that camera operations continue reliably, even when the app is in the background during recording.
+
+<Warning>
+The `shortService` foreground service type is limited to short-duration operations. Long video recordings may be interrupted if they exceed the system's time limit for short services.
+</Warning>
+
+## Storage Locations
+
+Media captured by the camera is stored in the app's cache directory:
+
+### Photos
+
+**Location:** `{cache}/captured.jpg`
+
+- Format: JPEG
+- Stored in the app's cache directory
+- Automatically cleaned up by the system when storage is low
+
+### Videos
+
+**Location:** `{cache}/video_{timestamp}.mp4`
+
+- Format: MP4
+- Filename includes Unix timestamp in milliseconds
+- Stored in the app's cache directory
+
+<Note>
+Files in the cache directory are not backed up and may be deleted by the system. If you need to persist media long-term, copy files to permanent storage after capture.
+</Note>
+
+## Implementation Details
+
+### Bridge Functions
+
+The plugin exposes three main bridge functions:
+
+1. **Camera.GetPhoto** - `com.nativephp.camera.CameraFunctions.GetPhoto`
+2. **Camera.RecordVideo** - `com.nativephp.camera.CameraFunctions.RecordVideo`
+3. **Camera.PickMedia** - `com.nativephp.camera.GalleryFunctions.PickMedia`
+
+### Camera Coordinator
+
+The Android implementation uses a `CameraCoordinator` class to manage camera operations:
+
+```kotlin
+val coord = CameraCoordinator.install(activity)
+coord.launchCamera(id, event)
+```
+
+All camera operations run on the UI thread via `Handler(Looper.getMainLooper()).post { ... }`
+
+### Code Example
+
+Here's how the photo capture function is implemented:
+
+```kotlin
+class GetPhoto(private val activity: FragmentActivity) : BridgeFunction {
+    override fun execute(parameters: Map<String, Any>): Map<String, Any> {
+        val id = parameters["id"] as? String
+        val event = parameters["event"] as? String
+
+        Log.d("CameraFunctions.GetPhoto", "📸 Capturing photo with id=$id, event=$event")
+
+        // Launch camera on UI thread
+        Handler(Looper.getMainLooper()).post {
+            try {
+                val coord = CameraCoordinator.install(activity)
+                coord.launchCamera(id, event)
+            } catch (e: Exception) {
+                Log.e("CameraFunctions.GetPhoto", "❌ Error launching camera: ${e.message}", e)
+            }
+        }
+
+        return emptyMap()
+    }
+}
+```
+
+## Platform-Specific Considerations
+
+### Runtime Permissions
+
+Android 6.0+ requires runtime permission requests. The plugin handles this automatically, but users may deny permissions. Listen for the `PermissionDenied` event to handle denial gracefully:
+
+```php
+use Native\Mobile\Events\Camera\PermissionDenied;
+
+#[OnNative(PermissionDenied::class)]
+public function handlePermissionDenied()
+{
+    // Guide user to app settings
+}
+```
+
+### File URIs
+
+Android requires FileProvider for sharing file URIs. The plugin handles this internally, but be aware when implementing custom file handling.
+
+### Video Recording Limitations
+
+- Maximum duration can be set via `maxDuration` parameter
+- Recording quality depends on device hardware
+- Some devices may have manufacturer-specific limitations
+
+## Dependencies
+
+The plugin has no external dependencies beyond the Android SDK.
+
+```json
+"dependencies": {
+    "implementation": []
+}
+```
+
+All required functionality is provided by the Android framework APIs.

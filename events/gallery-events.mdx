@@ -1,0 +1,438 @@
+---
+title: Gallery Events
+description: Events fired when selecting media from the device gallery
+---
+
+Gallery events are fired when the user selects media from their device's photo library or gallery.
+
+## MediaSelected
+
+Fired when the user selects media from the gallery picker, or when they cancel the picker.
+
+**Event Class:** `Native\Mobile\Events\Gallery\MediaSelected`
+
+### Payload
+
+<ResponseField name="success" type="boolean" required>
+  `true` if media was selected, `false` if the user cancelled.
+</ResponseField>
+
+<ResponseField name="files" type="array" required>
+  Array of selected media files. Each file object contains:
+  - `path` (string) - Absolute file path to the media file
+  - `mimeType` (string) - MIME type (e.g., `image/jpeg`, `video/mp4`)
+  - `extension` (string) - File extension (e.g., `jpg`, `mp4`)
+  - `type` (string) - Media type: `image` or `video`
+</ResponseField>
+
+<ResponseField name="count" type="integer" required>
+  Number of files selected. Will be `0` if the user cancelled.
+</ResponseField>
+
+<ResponseField name="cancelled" type="boolean">
+  `true` if the user cancelled the picker without selecting any media. Only present when cancelled.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  Optional identifier if set via the `id()` method when opening the gallery.
+</ResponseField>
+
+### Examples
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Gallery\MediaSelected;
+    use Native\Mobile\Facades\Camera;
+
+    class MediaPicker extends Component
+    {
+        public array $selectedFiles = [];
+
+        public function pickImages()
+        {
+            Camera::pickImages()
+                ->images()
+                ->multiple()
+                ->maxItems(5)
+                ->id('profile-gallery')
+                ->start();
+        }
+
+        #[OnNative(MediaSelected::class)]
+        public function handleMediaSelected(bool $success, array $files, int $count, ?string $id = null)
+        {
+            if (!$success) {
+                session()->flash('info', 'No media selected');
+                return;
+            }
+
+            // Process each selected file
+            foreach ($files as $file) {
+                $this->processMediaFile(
+                    $file['path'],
+                    $file['type'],
+                    $file['mimeType']
+                );
+            }
+
+            $this->selectedFiles = $files;
+
+            session()->flash('message', "Selected {$count} file(s)");
+        }
+
+        private function processMediaFile(string $path, string $type, string $mimeType)
+        {
+            // Read the file contents
+            $contents = file_get_contents($path);
+
+            // Upload to storage
+            $filename = basename($path);
+            Storage::disk('s3')->put("media/{$filename}", $contents);
+
+            // Save to database
+            Media::create([
+                'path' => $filename,
+                'type' => $type,
+                'mime_type' => $mimeType,
+                'size' => filesize($path)
+            ]);
+
+            // Clean up temporary file
+            unlink($path);
+        }
+    }
+    ```
+  </Tab>
+  <Tab title="Vue">
+    ```vue
+    <script setup>
+    import { ref, onMounted, onUnmounted } from 'vue';
+    import { Camera, On, Off, Events } from '#nativephp';
+
+    const selectedFiles = ref([]);
+    const isProcessing = ref(false);
+
+    const pickImages = async () => {
+        await Camera.pickImages()
+            .images()
+            .multiple()
+            .maxItems(5)
+            .id('profile-gallery');
+    };
+
+    const handleMediaSelected = async (payload) => {
+        if (!payload.success) {
+            console.log('Media selection cancelled');
+            return;
+        }
+
+        isProcessing.value = true;
+
+        // Save selected files
+        selectedFiles.value = payload.files;
+
+        // Upload each file
+        for (const file of payload.files) {
+            await uploadFile(file);
+        }
+
+        isProcessing.value = false;
+
+        console.log(`Uploaded ${payload.count} file(s)`);
+    };
+
+    const uploadFile = async (file) => {
+        const response = await fetch(file.path);
+        const blob = await response.blob();
+
+        const formData = new FormData();
+        formData.append('file', blob, `file.${file.extension}`);
+        formData.append('type', file.type);
+        formData.append('mimeType', file.mimeType);
+
+        await fetch('/api/media', {
+            method: 'POST',
+            body: formData
+        });
+    };
+
+    onMounted(() => {
+        On(Events.Gallery.MediaSelected, handleMediaSelected);
+    });
+
+    onUnmounted(() => {
+        Off(Events.Gallery.MediaSelected, handleMediaSelected);
+    });
+    </script>
+
+    <template>
+        <div>
+            <button @click="pickImages">Select Images</button>
+
+            <div v-if="isProcessing">
+                <p>Uploading files...</p>
+            </div>
+
+            <div class="gallery">
+                <div v-for="file in selectedFiles" :key="file.path" class="media-item">
+                    <img v-if="file.type === 'image'" :src="file.path" :alt="file.path" />
+                    <video v-if="file.type === 'video'" :src="file.path" controls></video>
+                    <p>{{ file.mimeType }}</p>
+                </div>
+            </div>
+        </div>
+    </template>
+    ```
+  </Tab>
+  <Tab title="React">
+    ```jsx
+    import { useEffect, useState } from 'react';
+    import { Camera, On, Off, Events } from '#nativephp';
+
+    function MediaPicker() {
+        const [selectedFiles, setSelectedFiles] = useState([]);
+        const [isProcessing, setIsProcessing] = useState(false);
+
+        const pickImages = async () => {
+            await Camera.pickImages()
+                .images()
+                .multiple()
+                .maxItems(5)
+                .id('profile-gallery');
+        };
+
+        useEffect(() => {
+            const handleMediaSelected = async (payload) => {
+                if (!payload.success) {
+                    console.log('Media selection cancelled');
+                    return;
+                }
+
+                setIsProcessing(true);
+
+                // Save selected files
+                setSelectedFiles(payload.files);
+
+                // Upload each file
+                for (const file of payload.files) {
+                    await uploadFile(file);
+                }
+
+                setIsProcessing(false);
+
+                console.log(`Uploaded ${payload.count} file(s)`);
+            };
+
+            On(Events.Gallery.MediaSelected, handleMediaSelected);
+
+            return () => {
+                Off(Events.Gallery.MediaSelected, handleMediaSelected);
+            };
+        }, []);
+
+        const uploadFile = async (file) => {
+            const response = await fetch(file.path);
+            const blob = await response.blob();
+
+            const formData = new FormData();
+            formData.append('file', blob, `file.${file.extension}`);
+            formData.append('type', file.type);
+            formData.append('mimeType', file.mimeType);
+
+            await fetch('/api/media', {
+                method: 'POST',
+                body: formData
+            });
+        };
+
+        return (
+            <div>
+                <button onClick={pickImages}>Select Images</button>
+
+                {isProcessing && <p>Uploading files...</p>}
+
+                <div className="gallery">
+                    {selectedFiles.map((file) => (
+                        <div key={file.path} className="media-item">
+                            {file.type === 'image' && (
+                                <img src={file.path} alt={file.path} />
+                            )}
+                            {file.type === 'video' && (
+                                <video src={file.path} controls />
+                            )}
+                            <p>{file.mimeType}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Handling Cancellation
+
+The event fires even when the user cancels, with `success: false` and `cancelled: true`:
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    #[OnNative(MediaSelected::class)]
+    public function handleMediaSelected(bool $success, array $files, int $count, ?string $id = null)
+    {
+        if (!$success) {
+            Log::info('Media selection cancelled', ['id' => $id]);
+            session()->flash('info', 'No media selected');
+            return;
+        }
+
+        // Process selected files
+        $this->processFiles($files);
+    }
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    On(Events.Gallery.MediaSelected, (payload) => {
+        if (payload.cancelled) {
+            console.log('Media selection cancelled');
+            showNotification('No media selected');
+            return;
+        }
+
+        // Process selected files
+        processFiles(payload.files);
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Picker Configuration
+
+Customize the gallery picker behavior:
+
+### Media Type Filtering
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    // Images only
+    Camera::pickImages()->images()->start();
+
+    // Videos only
+    Camera::pickImages()->videos()->start();
+
+    // All media types
+    Camera::pickImages()->all()->start();
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    // Images only
+    await Camera.pickImages().images();
+
+    // Videos only
+    await Camera.pickImages().videos();
+
+    // All media types
+    await Camera.pickImages().all();
+    ```
+  </Tab>
+</Tabs>
+
+### Selection Limits
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    // Single selection (default)
+    Camera::pickImages()->images()->start();
+
+    // Multiple selection with max 5 items
+    Camera::pickImages()
+        ->images()
+        ->multiple()
+        ->maxItems(5)
+        ->start();
+
+    // Multiple selection with no limit
+    Camera::pickImages()
+        ->images()
+        ->multiple()
+        ->maxItems(0)
+        ->start();
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    // Single selection (default)
+    await Camera.pickImages().images();
+
+    // Multiple selection with max 5 items
+    await Camera.pickImages()
+        .images()
+        .multiple()
+        .maxItems(5);
+
+    // Multiple selection with no limit
+    await Camera.pickImages()
+        .images()
+        .multiple()
+        .maxItems(0);
+    ```
+  </Tab>
+</Tabs>
+
+## File Storage
+
+Selected media files are copied to the app's temporary directory:
+
+- **iOS:** `~/Library/Application Support/Gallery/gallery_selected_{timestamp}_{index}.{ext}`
+- **Android:** `{cache}/Gallery/gallery_selected_{timestamp}_{index}.{ext}`
+
+<Warning>
+  Media files in the temporary directory may be deleted by the system. Always move or upload important files to permanent storage.
+</Warning>
+
+## Processing Multiple Files
+
+When handling multiple file selections, process them efficiently:
+
+```php
+#[OnNative(MediaSelected::class)]
+public function handleMediaSelected(bool $success, array $files, int $count, ?string $id = null)
+{
+    if (!$success || $count === 0) {
+        return;
+    }
+
+    // Dispatch batch job for processing
+    ProcessMediaBatch::dispatch($files);
+
+    session()->flash('message', "Processing {$count} file(s)...");
+}
+```
+
+```js
+On(Events.Gallery.MediaSelected, async (payload) => {
+    if (!payload.success || payload.count === 0) {
+        return;
+    }
+
+    // Upload files in parallel with Promise.all
+    await Promise.all(
+        payload.files.map(file => uploadFile(file))
+    );
+
+    showNotification(`Uploaded ${payload.count} file(s)`);
+});
+```
+
+## Related
+
+- [Photo Events](/events/photo-events) - Handle photo capture events
+- [Video Events](/events/video-events) - Handle video recording events
+- [Gallery API](/api/gallery) - Pick media from the gallery

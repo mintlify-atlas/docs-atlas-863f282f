@@ -1,0 +1,997 @@
+---
+title: Complete Workflows
+description: Full end-to-end workflows for common use cases
+---
+
+These examples demonstrate complete, production-ready workflows for common camera plugin use cases.
+
+## Profile Picture Upload Workflow
+
+A complete workflow for capturing, previewing, and uploading a profile picture.
+
+<CodeGroup>
+
+```php PHP/Livewire
+use Native\Mobile\Facades\Camera;
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Camera\PhotoTaken;
+use Livewire\Component;
+use Illuminate\Support\Facades\Storage;
+use Intervention\Image\Facades\Image;
+
+class ProfilePictureUploader extends Component
+{
+    public $currentPhoto = null;
+    public $previewUrl = null;
+    public $uploading = false;
+    public $uploadComplete = false;
+
+    public function mount()
+    {
+        $this->currentPhoto = auth()->user()->profile_photo_path;
+    }
+
+    public function captureNewPhoto()
+    {
+        Camera::getPhoto();
+    }
+
+    public function selectFromGallery()
+    {
+        Camera::pickImages('images', false);
+    }
+
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhotoTaken(string $path)
+    {
+        $this->processAndPreviewPhoto($path);
+    }
+
+    #[OnNative(MediaSelected::class)]
+    public function handleMediaSelected($success, $files, $count)
+    {
+        if (!$success || empty($files)) {
+            return;
+        }
+        
+        $this->processAndPreviewPhoto($files[0]);
+    }
+
+    private function processAndPreviewPhoto(string $path)
+    {
+        // Create preview
+        $imageData = base64_encode(file_get_contents($path));
+        $this->previewUrl = 'data:image/jpeg;base64,' . $imageData;
+        
+        // Store temporarily
+        session(['pending_profile_photo' => $path]);
+    }
+
+    public function saveProfilePhoto()
+    {
+        $path = session('pending_profile_photo');
+        
+        if (!$path || !file_exists($path)) {
+            session()->flash('error', 'Photo not found. Please try again.');
+            return;
+        }
+
+        $this->uploading = true;
+
+        try {
+            // Process the image (resize, optimize)
+            $image = Image::make($path)
+                ->fit(400, 400)
+                ->encode('jpg', 90);
+
+            // Generate unique filename
+            $filename = auth()->id() . '_' . time() . '.jpg';
+
+            // Save to storage
+            Storage::disk('public')->put(
+                'profile-photos/' . $filename,
+                $image->stream()
+            );
+
+            // Delete old photo if exists
+            if ($this->currentPhoto) {
+                Storage::disk('public')->delete($this->currentPhoto);
+            }
+
+            // Update user profile
+            auth()->user()->update([
+                'profile_photo_path' => 'profile-photos/' . $filename
+            ]);
+
+            $this->currentPhoto = 'profile-photos/' . $filename;
+            $this->uploadComplete = true;
+            $this->previewUrl = null;
+            
+            session()->forget('pending_profile_photo');
+            session()->flash('success', 'Profile photo updated successfully!');
+        } catch (\Exception $e) {
+            session()->flash('error', 'Failed to save photo: ' . $e->getMessage());
+        } finally {
+            $this->uploading = false;
+        }
+    }
+
+    public function cancelUpload()
+    {
+        $this->previewUrl = null;
+        session()->forget('pending_profile_photo');
+    }
+
+    public function render()
+    {
+        return view('livewire.profile-picture-uploader');
+    }
+}
+```
+
+```vue Vue
+<script setup>
+import { Camera, On, Off, Events } from '#nativephp';
+import { ref, onMounted, onUnmounted } from 'vue';
+import { router } from '@inertiajs/vue3';
+
+const props = defineProps({
+  currentPhoto: String,
+});
+
+const previewUrl = ref('');
+const uploading = ref(false);
+const uploadComplete = ref(false);
+const pendingPhotoPath = ref('');
+
+const captureNewPhoto = async () => {
+  try {
+    await Camera.getPhoto().id('profile-photo');
+  } catch (error) {
+    console.error('Failed to capture photo:', error);
+  }
+};
+
+const selectFromGallery = async () => {
+  try {
+    await Camera.pickImages()
+      .images()
+      .single();
+  } catch (error) {
+    console.error('Failed to pick image:', error);
+  }
+};
+
+const handlePhotoTaken = (payload) => {
+  pendingPhotoPath.value = payload.path;
+  processAndPreview(payload.path);
+};
+
+const handleMediaSelected = (payload) => {
+  if (!payload.success || !payload.files.length) {
+    return;
+  }
+  
+  pendingPhotoPath.value = payload.files[0];
+  processAndPreview(payload.files[0]);
+};
+
+const processAndPreview = async (path) => {
+  try {
+    const response = await fetch(path);
+    const blob = await response.blob();
+    previewUrl.value = URL.createObjectURL(blob);
+  } catch (error) {
+    console.error('Failed to create preview:', error);
+  }
+};
+
+const saveProfilePhoto = async () => {
+  if (!pendingPhotoPath.value) {
+    return;
+  }
+
+  uploading.value = true;
+
+  try {
+    // Upload photo to server
+    const response = await fetch('/api/profile/photo', {
+      method: 'POST',
+      body: JSON.stringify({ path: pendingPhotoPath.value }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      throw new Error('Upload failed');
+    }
+
+    const data = await response.json();
+    
+    uploadComplete.value = true;
+    previewUrl.value = '';
+    pendingPhotoPath.value = '';
+    
+    // Reload page data
+    router.reload({ only: ['currentPhoto'] });
+  } catch (error) {
+    console.error('Failed to save photo:', error);
+    alert('Failed to save profile photo. Please try again.');
+  } finally {
+    uploading.value = false;
+  }
+};
+
+const cancelUpload = () => {
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value);
+  }
+  previewUrl.value = '';
+  pendingPhotoPath.value = '';
+};
+
+onMounted(() => {
+  On(Events.Camera.PhotoTaken, handlePhotoTaken);
+  On(Events.Gallery.MediaSelected, handleMediaSelected);
+});
+
+onUnmounted(() => {
+  Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+  Off(Events.Gallery.MediaSelected, handleMediaSelected);
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value);
+  }
+});
+</script>
+
+<template>
+  <div class="profile-picture-uploader">
+    <div class="current-photo" v-if="currentPhoto && !previewUrl">
+      <img :src="`/storage/${currentPhoto}`" alt="Profile photo" />
+    </div>
+
+    <div class="preview" v-if="previewUrl">
+      <img :src="previewUrl" alt="Preview" />
+      <div class="preview-actions">
+        <button 
+          @click="saveProfilePhoto" 
+          :disabled="uploading"
+          class="btn-primary"
+        >
+          {{ uploading ? 'Uploading...' : 'Save Photo' }}
+        </button>
+        <button 
+          @click="cancelUpload" 
+          :disabled="uploading"
+          class="btn-secondary"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+
+    <div class="actions" v-if="!previewUrl">
+      <button @click="captureNewPhoto" class="btn-primary">
+        Take Photo
+      </button>
+      <button @click="selectFromGallery" class="btn-secondary">
+        Choose from Gallery
+      </button>
+    </div>
+
+    <div v-if="uploadComplete" class="success-message">
+      Profile photo updated successfully!
+    </div>
+  </div>
+</template>
+```
+
+</CodeGroup>
+
+## Video Recording with Preview
+
+A complete workflow for recording a video, previewing it, and uploading to a server.
+
+<CodeGroup>
+
+```php PHP/Livewire
+use Native\Mobile\Facades\Camera;
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Camera\VideoRecorded;
+use Native\Mobile\Events\Camera\VideoCancelled;
+use Livewire\Component;
+use Illuminate\Support\Facades\Storage;
+
+class VideoRecorderWithPreview extends Component
+{
+    public $isRecording = false;
+    public $videoPath = null;
+    public $videoMimeType = null;
+    public $videoId = null;
+    public $uploading = false;
+    public $uploadProgress = 0;
+    public $savedVideos = [];
+
+    public function mount()
+    {
+        $this->loadSavedVideos();
+    }
+
+    public function startRecording(int $maxDuration = 60)
+    {
+        $this->isRecording = true;
+        $this->videoId = 'video-' . uniqid();
+        
+        Camera::recordVideo()
+            ->maxDuration($maxDuration)
+            ->id($this->videoId)
+            ->start();
+    }
+
+    #[OnNative(VideoRecorded::class)]
+    public function handleVideoRecorded(string $path, string $mimeType, ?string $id)
+    {
+        $this->isRecording = false;
+        $this->videoPath = $path;
+        $this->videoMimeType = $mimeType;
+        $this->videoId = $id;
+        
+        // Store temporarily for preview
+        session([
+            'pending_video' => [
+                'path' => $path,
+                'mime_type' => $mimeType,
+                'id' => $id,
+            ]
+        ]);
+    }
+
+    #[OnNative(VideoCancelled::class)]
+    public function handleVideoCancelled()
+    {
+        $this->isRecording = false;
+        session()->flash('message', 'Recording cancelled.');
+    }
+
+    public function saveVideo()
+    {
+        $pending = session('pending_video');
+        
+        if (!$pending || !file_exists($pending['path'])) {
+            session()->flash('error', 'Video not found.');
+            return;
+        }
+
+        $this->uploading = true;
+
+        try {
+            // Generate filename
+            $extension = $pending['mime_type'] === 'video/mp4' ? 'mp4' : 'mov';
+            $filename = ($pending['id'] ?? uniqid('video_')) . '.' . $extension;
+
+            // Upload to storage
+            $storedPath = Storage::putFileAs(
+                'videos',
+                new File($pending['path']),
+                $filename
+            );
+
+            // Save to database
+            $video = auth()->user()->videos()->create([
+                'identifier' => $pending['id'],
+                'path' => $storedPath,
+                'mime_type' => $pending['mime_type'],
+                'filesize' => filesize($pending['path']),
+            ]);
+
+            // Clear pending
+            session()->forget('pending_video');
+            $this->videoPath = null;
+            
+            // Reload saved videos
+            $this->loadSavedVideos();
+            
+            session()->flash('success', 'Video saved successfully!');
+        } catch (\Exception $e) {
+            session()->flash('error', 'Failed to save video: ' . $e->getMessage());
+        } finally {
+            $this->uploading = false;
+        }
+    }
+
+    public function discardVideo()
+    {
+        session()->forget('pending_video');
+        $this->videoPath = null;
+        $this->videoMimeType = null;
+        $this->videoId = null;
+    }
+
+    public function deleteVideo($videoId)
+    {
+        $video = auth()->user()->videos()->find($videoId);
+        
+        if ($video) {
+            Storage::delete($video->path);
+            $video->delete();
+            $this->loadSavedVideos();
+            session()->flash('success', 'Video deleted.');
+        }
+    }
+
+    private function loadSavedVideos()
+    {
+        $this->savedVideos = auth()->user()
+            ->videos()
+            ->latest()
+            ->take(10)
+            ->get()
+            ->toArray();
+    }
+
+    public function render()
+    {
+        return view('livewire.video-recorder-with-preview');
+    }
+}
+```
+
+```jsx React
+import { Camera, On, Off, Events } from '#nativephp';
+import { useState, useEffect } from 'react';
+
+function VideoRecorderWithPreview() {
+  const [isRecording, setIsRecording] = useState(false);
+  const [videoPath, setVideoPath] = useState('');
+  const [videoMimeType, setVideoMimeType] = useState('');
+  const [videoId, setVideoId] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [savedVideos, setSavedVideos] = useState([]);
+
+  const startRecording = async (maxDuration = 60) => {
+    const id = `video-${Date.now()}`;
+    setVideoId(id);
+    setIsRecording(true);
+    
+    try {
+      await Camera.recordVideo()
+        .maxDuration(maxDuration)
+        .id(id);
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+      setIsRecording(false);
+    }
+  };
+
+  const saveVideo = async () => {
+    if (!videoPath) return;
+
+    setUploading(true);
+
+    try {
+      const response = await fetch('/api/videos/upload', {
+        method: 'POST',
+        body: JSON.stringify({
+          path: videoPath,
+          mimeType: videoMimeType,
+          id: videoId,
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const data = await response.json();
+      
+      // Add to saved videos
+      setSavedVideos(prev => [data, ...prev]);
+      
+      // Clear pending video
+      setVideoPath('');
+      setVideoMimeType('');
+      setVideoId('');
+      
+      alert('Video saved successfully!');
+    } catch (error) {
+      console.error('Failed to save video:', error);
+      alert('Failed to save video. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const discardVideo = () => {
+    setVideoPath('');
+    setVideoMimeType('');
+    setVideoId('');
+  };
+
+  const deleteVideo = async (id) => {
+    try {
+      await fetch(`/api/videos/${id}`, { method: 'DELETE' });
+      setSavedVideos(prev => prev.filter(v => v.id !== id));
+    } catch (error) {
+      console.error('Failed to delete video:', error);
+    }
+  };
+
+  useEffect(() => {
+    const handleVideoRecorded = (payload) => {
+      setIsRecording(false);
+      setVideoPath(payload.path);
+      setVideoMimeType(payload.mimeType);
+      setVideoId(payload.id);
+    };
+
+    const handleVideoCancelled = () => {
+      setIsRecording(false);
+      alert('Recording cancelled');
+    };
+
+    On(Events.Camera.VideoRecorded, handleVideoRecorded);
+    On(Events.Camera.VideoCancelled, handleVideoCancelled);
+
+    // Load saved videos
+    fetch('/api/videos')
+      .then(res => res.json())
+      .then(data => setSavedVideos(data));
+
+    return () => {
+      Off(Events.Camera.VideoRecorded, handleVideoRecorded);
+      Off(Events.Camera.VideoCancelled, handleVideoCancelled);
+    };
+  }, []);
+
+  return (
+    <div className="video-recorder">
+      {!videoPath && (
+        <div className="recording-controls">
+          <button 
+            onClick={() => startRecording(30)}
+            disabled={isRecording}
+          >
+            {isRecording ? 'Recording...' : 'Record Short (30s)'}
+          </button>
+          
+          <button 
+            onClick={() => startRecording(60)}
+            disabled={isRecording}
+          >
+            {isRecording ? 'Recording...' : 'Record Medium (60s)'}
+          </button>
+          
+          <button 
+            onClick={() => startRecording(120)}
+            disabled={isRecording}
+          >
+            {isRecording ? 'Recording...' : 'Record Long (2min)'}
+          </button>
+        </div>
+      )}
+
+      {videoPath && (
+        <div className="video-preview">
+          <h3>Video Preview</h3>
+          <video src={videoPath} controls />
+          
+          <div className="preview-actions">
+            <button 
+              onClick={saveVideo}
+              disabled={uploading}
+            >
+              {uploading ? 'Uploading...' : 'Save Video'}
+            </button>
+            
+            <button 
+              onClick={discardVideo}
+              disabled={uploading}
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="saved-videos">
+        <h3>Saved Videos ({savedVideos.length})</h3>
+        {savedVideos.map(video => (
+          <div key={video.id} className="video-item">
+            <span>{video.identifier}</span>
+            <span>{(video.filesize / 1024 / 1024).toFixed(2)} MB</span>
+            <button onClick={() => deleteVideo(video.id)}>Delete</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default VideoRecorderWithPreview;
+```
+
+</CodeGroup>
+
+## Multi-Photo Upload Gallery
+
+A complete workflow for selecting multiple photos from the gallery and creating a photo gallery.
+
+<CodeGroup>
+
+```php PHP/Livewire
+use Native\Mobile\Facades\Camera;
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Gallery\MediaSelected;
+use Livewire\Component;
+use Illuminate\Support\Facades\Storage;
+
+class PhotoGalleryBuilder extends Component
+{
+    public $selectedPhotos = [];
+    public $uploadedPhotos = [];
+    public $uploading = false;
+    public $uploadProgress = 0;
+    public $galleryId = null;
+
+    public function mount($galleryId = null)
+    {
+        $this->galleryId = $galleryId;
+        if ($galleryId) {
+            $this->loadGallery($galleryId);
+        }
+    }
+
+    public function pickPhotos()
+    {
+        // Pick up to 10 images from gallery
+        Camera::pickImages('images', true);
+    }
+
+    public function capturePhoto()
+    {
+        Camera::getPhoto();
+    }
+
+    #[OnNative(MediaSelected::class)]
+    public function handleMediaSelected($success, $files, $count)
+    {
+        if (!$success || empty($files)) {
+            return;
+        }
+        
+        foreach ($files as $file) {
+            $this->selectedPhotos[] = [
+                'id' => uniqid('photo_'),
+                'path' => $file,
+                'preview' => $this->createPreview($file),
+            ];
+        }
+        
+        session()->flash('success', "Selected {$count} photos.");
+    }
+
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhotoTaken(string $path)
+    {
+        $this->selectedPhotos[] = [
+            'id' => uniqid('photo_'),
+            'path' => $path,
+            'preview' => $this->createPreview($path),
+        ];
+    }
+
+    private function createPreview(string $path)
+    {
+        return 'data:image/jpeg;base64,' . base64_encode(file_get_contents($path));
+    }
+
+    public function removePhoto($photoId)
+    {
+        $this->selectedPhotos = array_filter(
+            $this->selectedPhotos,
+            fn($photo) => $photo['id'] !== $photoId
+        );
+    }
+
+    public function uploadAll()
+    {
+        if (empty($this->selectedPhotos)) {
+            session()->flash('error', 'No photos to upload.');
+            return;
+        }
+
+        $this->uploading = true;
+        $totalPhotos = count($this->selectedPhotos);
+        $uploadedCount = 0;
+
+        try {
+            // Create or get gallery
+            if (!$this->galleryId) {
+                $gallery = auth()->user()->galleries()->create([
+                    'name' => 'Gallery ' . now()->format('Y-m-d H:i'),
+                    'description' => "Created with {$totalPhotos} photos",
+                ]);
+                $this->galleryId = $gallery->id;
+            }
+
+            foreach ($this->selectedPhotos as $photo) {
+                if (!file_exists($photo['path'])) {
+                    continue;
+                }
+
+                // Process and optimize image
+                $image = Image::make($photo['path'])
+                    ->resize(1200, null, function ($constraint) {
+                        $constraint->aspectRatio();
+                        $constraint->upsize();
+                    })
+                    ->encode('jpg', 85);
+
+                $filename = $photo['id'] . '.jpg';
+                
+                // Save to storage
+                $storedPath = Storage::disk('public')->put(
+                    'gallery-photos/' . $this->galleryId . '/' . $filename,
+                    $image->stream()
+                );
+
+                // Save to database
+                $this->uploadedPhotos[] = [
+                    'gallery_id' => $this->galleryId,
+                    'path' => $storedPath,
+                    'filename' => $filename,
+                    'filesize' => $image->filesize(),
+                ];
+
+                $uploadedCount++;
+                $this->uploadProgress = ($uploadedCount / $totalPhotos) * 100;
+                
+                // Dispatch progress event
+                $this->dispatch('upload-progress', progress: $this->uploadProgress);
+            }
+
+            // Save all to database
+            foreach ($this->uploadedPhotos as $photo) {
+                auth()->user()->photos()->create($photo);
+            }
+
+            // Clear selected photos
+            $this->selectedPhotos = [];
+            
+            session()->flash('success', "Successfully uploaded {$uploadedCount} photos!");
+            
+            // Redirect to gallery
+            return redirect()->route('galleries.show', $this->galleryId);
+        } catch (\Exception $e) {
+            session()->flash('error', 'Upload failed: ' . $e->getMessage());
+        } finally {
+            $this->uploading = false;
+            $this->uploadProgress = 0;
+        }
+    }
+
+    private function loadGallery($galleryId)
+    {
+        $gallery = auth()->user()->galleries()->with('photos')->find($galleryId);
+        
+        if ($gallery) {
+            $this->uploadedPhotos = $gallery->photos->toArray();
+        }
+    }
+
+    public function render()
+    {
+        return view('livewire.photo-gallery-builder');
+    }
+}
+```
+
+```vue Vue
+<script setup>
+import { Camera, On, Off, Events } from '#nativephp';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+
+const props = defineProps({
+  galleryId: String,
+});
+
+const selectedPhotos = ref([]);
+const uploadedPhotos = ref([]);
+const uploading = ref(false);
+const uploadProgress = ref(0);
+
+const pickPhotos = async () => {
+  try {
+    await Camera.pickImages()
+      .images()
+      .multiple()
+      .maxItems(10);
+  } catch (error) {
+    console.error('Failed to pick photos:', error);
+  }
+};
+
+const capturePhoto = async () => {
+  try {
+    await Camera.getPhoto();
+  } catch (error) {
+    console.error('Failed to capture photo:', error);
+  }
+};
+
+const handleMediaSelected = async (payload) => {
+  if (!payload.success || !payload.files.length) {
+    return;
+  }
+  
+  for (const file of payload.files) {
+    const preview = await createPreview(file);
+    selectedPhotos.value.push({
+      id: `photo-${Date.now()}-${Math.random()}`,
+      path: file,
+      preview,
+    });
+  }
+};
+
+const handlePhotoTaken = async (payload) => {
+  const preview = await createPreview(payload.path);
+  selectedPhotos.value.push({
+    id: `photo-${Date.now()}`,
+    path: payload.path,
+    preview,
+  });
+};
+
+const createPreview = async (path) => {
+  try {
+    const response = await fetch(path);
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  } catch (error) {
+    console.error('Failed to create preview:', error);
+    return '';
+  }
+};
+
+const removePhoto = (photoId) => {
+  const photo = selectedPhotos.value.find(p => p.id === photoId);
+  if (photo && photo.preview) {
+    URL.revokeObjectURL(photo.preview);
+  }
+  selectedPhotos.value = selectedPhotos.value.filter(p => p.id !== photoId);
+};
+
+const uploadAll = async () => {
+  if (!selectedPhotos.value.length) {
+    alert('No photos to upload');
+    return;
+  }
+
+  uploading.value = true;
+  uploadProgress.value = 0;
+
+  try {
+    const totalPhotos = selectedPhotos.value.length;
+    const photos = [];
+
+    for (let i = 0; i < totalPhotos; i++) {
+      const photo = selectedPhotos.value[i];
+      
+      const response = await fetch('/api/gallery/photos', {
+        method: 'POST',
+        body: JSON.stringify({
+          galleryId: props.galleryId,
+          path: photo.path,
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+
+      const data = await response.json();
+      photos.push(data);
+      
+      uploadProgress.value = ((i + 1) / totalPhotos) * 100;
+    }
+
+    uploadedPhotos.value = [...uploadedPhotos.value, ...photos];
+    selectedPhotos.value = [];
+    
+    alert(`Successfully uploaded ${photos.length} photos!`);
+  } catch (error) {
+    console.error('Upload failed:', error);
+    alert('Failed to upload photos. Please try again.');
+  } finally {
+    uploading.value = false;
+    uploadProgress.value = 0;
+  }
+};
+
+const photoCount = computed(() => selectedPhotos.value.length);
+
+onMounted(() => {
+  On(Events.Gallery.MediaSelected, handleMediaSelected);
+  On(Events.Camera.PhotoTaken, handlePhotoTaken);
+  
+  // Load existing gallery photos if galleryId provided
+  if (props.galleryId) {
+    fetch(`/api/gallery/${props.galleryId}/photos`)
+      .then(res => res.json())
+      .then(data => {
+        uploadedPhotos.value = data;
+      });
+  }
+});
+
+onUnmounted(() => {
+  Off(Events.Gallery.MediaSelected, handleMediaSelected);
+  Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+  
+  // Clean up preview URLs
+  selectedPhotos.value.forEach(photo => {
+    if (photo.preview) {
+      URL.revokeObjectURL(photo.preview);
+    }
+  });
+});
+</script>
+
+<template>
+  <div class="photo-gallery-builder">
+    <div class="actions">
+      <button @click="pickPhotos" :disabled="uploading">
+        Pick from Gallery
+      </button>
+      <button @click="capturePhoto" :disabled="uploading">
+        Take Photo
+      </button>
+    </div>
+
+    <div v-if="photoCount > 0" class="selected-photos">
+      <h3>Selected Photos ({{ photoCount }})</h3>
+      <div class="photo-grid">
+        <div 
+          v-for="photo in selectedPhotos" 
+          :key="photo.id"
+          class="photo-item"
+        >
+          <img :src="photo.preview" :alt="photo.id" />
+          <button 
+            @click="removePhoto(photo.id)"
+            class="remove-btn"
+            :disabled="uploading"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+      
+      <button 
+        @click="uploadAll"
+        :disabled="uploading"
+        class="upload-btn"
+      >
+        {{ uploading ? `Uploading... ${uploadProgress.toFixed(0)}%` : `Upload ${photoCount} Photos` }}
+      </button>
+    </div>
+
+    <div v-if="uploadedPhotos.length > 0" class="uploaded-photos">
+      <h3>Uploaded Photos ({{ uploadedPhotos.length }})</h3>
+      <div class="photo-grid">
+        <div 
+          v-for="photo in uploadedPhotos" 
+          :key="photo.id"
+          class="photo-item"
+        >
+          <img :src="`/storage/${photo.path}`" :alt="photo.filename" />
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+```
+
+</CodeGroup>

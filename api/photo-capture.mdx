@@ -1,0 +1,269 @@
+---
+title: Photo Capture
+description: Capture photos using the device camera with Camera.getPhoto()
+---
+
+Capture a photo using the device camera. The photo is automatically saved to the app's storage and the file path is returned via the `PhotoTaken` event.
+
+## Basic Usage
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Facades\Camera;
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\PhotoTaken;
+
+    // Take a photo
+    Camera::getPhoto();
+
+    // Handle the result
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhotoTaken(string $path)
+    {
+        // Process the captured photo
+        $this->photoPath = $path;
+        $this->processPhoto($path);
+    }
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    import { Camera, On, Events } from '#nativephp';
+
+    // Take a photo
+    await Camera.getPhoto();
+
+    // Handle the result
+    On(Events.Camera.PhotoTaken, (payload) => {
+        console.log('Photo captured:', payload.path);
+        processPhoto(payload.path);
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Parameters
+
+<ParamField path="id" type="string" optional>
+  Optional identifier to track this specific photo capture. This ID will be included in the event payload.
+
+  <Tabs>
+    <Tab title="PHP">
+      ```php
+      Camera::getPhoto(['id' => 'profile-pic']);
+      ```
+    </Tab>
+    <Tab title="JavaScript">
+      ```js
+      await Camera.getPhoto()
+          .id('profile-pic');
+      ```
+    </Tab>
+  </Tabs>
+</ParamField>
+
+<ParamField path="event" type="string" optional>
+  Custom event class to fire when the photo is captured. Defaults to `Native\Mobile\Events\Camera\PhotoTaken`.
+
+  <Tabs>
+    <Tab title="PHP">
+      ```php
+      Camera::getPhoto(['event' => 'App\\Events\\CustomPhotoEvent']);
+      ```
+    </Tab>
+    <Tab title="JavaScript">
+      ```js
+      await Camera.getPhoto()
+          .event('App\\Events\\CustomPhotoEvent');
+      ```
+    </Tab>
+  </Tabs>
+</ParamField>
+
+## Events
+
+### PhotoTaken
+
+Fired when a photo is successfully captured.
+
+**Event Class:** `Native\Mobile\Events\Camera\PhotoTaken`
+
+**Payload:**
+
+<ParamField path="path" type="string">
+  File path to the captured photo (JPEG format)
+</ParamField>
+
+<ParamField path="mimeType" type="string">
+  MIME type of the photo (always `image/jpeg`)
+</ParamField>
+
+<ParamField path="id" type="string" optional>
+  Optional identifier if set via the `id` parameter
+</ParamField>
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\PhotoTaken;
+
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhotoTaken(string $path, ?string $id = null)
+    {
+        if ($id === 'profile-pic') {
+            $this->updateProfilePicture($path);
+        }
+    }
+    ```
+  </Tab>
+  <Tab title="Vue">
+    ```js
+    import { On, Off, Events } from '#nativephp';
+
+    On(Events.Camera.PhotoTaken, (payload) => {
+        console.log('Photo:', payload.path);
+        console.log('MIME:', payload.mimeType);
+        console.log('ID:', payload.id);
+    });
+    ```
+  </Tab>
+</Tabs>
+
+### PhotoCancelled
+
+Fired when the user cancels photo capture.
+
+**Event Class:** `Native\Mobile\Events\Camera\PhotoCancelled`
+
+**Payload:**
+
+<ParamField path="cancelled" type="boolean">
+  Always `true`
+</ParamField>
+
+<ParamField path="id" type="string" optional>
+  Optional identifier if set via the `id` parameter
+</ParamField>
+
+### PermissionDenied
+
+Fired when camera permission is denied.
+
+**Event Class:** `Native\Mobile\Events\Camera\PermissionDenied`
+
+**Payload:**
+
+<ParamField path="action" type="string">
+  Always `"photo"` for photo capture
+</ParamField>
+
+<ParamField path="id" type="string" optional>
+  Optional identifier if set via the `id` parameter
+</ParamField>
+
+## Storage Location
+
+**Android:** App cache directory at `{cache}/captured_photo_{timestamp}.jpg`
+
+**iOS:** Temporary directory at `~/Library/Temporary/captured_photo_{timestamp}.jpg`
+
+Photos are saved in JPEG format with 90% compression quality (iOS).
+
+## Example: Profile Picture Upload
+
+<Tabs>
+  <Tab title="PHP (Livewire)">
+    ```php
+    use Native\Mobile\Facades\Camera;
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\PhotoTaken;
+    use Livewire\Component;
+
+    class ProfileComponent extends Component
+    {
+        public $photoPath;
+
+        public function captureProfilePicture()
+        {
+            Camera::getPhoto(['id' => 'profile-pic']);
+        }
+
+        #[OnNative(PhotoTaken::class)]
+        public function handlePhotoTaken(string $path, ?string $id = null)
+        {
+            if ($id === 'profile-pic') {
+                $this->photoPath = $path;
+                $this->uploadToServer($path);
+            }
+        }
+
+        private function uploadToServer(string $path)
+        {
+            // Upload photo to your server
+            $user = auth()->user();
+            $user->update([
+                'profile_photo' => file_get_contents($path)
+            ]);
+        }
+    }
+    ```
+  </Tab>
+  <Tab title="Vue">
+    ```vue
+    <script setup>
+    import { Camera, On, Off, Events } from '#nativephp';
+    import { ref, onMounted, onUnmounted } from 'vue';
+
+    const photoPath = ref('');
+
+    const captureProfilePicture = async () => {
+        await Camera.getPhoto()
+            .id('profile-pic');
+    };
+
+    const handlePhotoTaken = (payload) => {
+        if (payload.id === 'profile-pic') {
+            photoPath.value = payload.path;
+            uploadToServer(payload.path);
+        }
+    };
+
+    const uploadToServer = async (path) => {
+        // Upload photo to your server
+        await axios.post('/api/profile-photo', {
+            photo: path
+        });
+    };
+
+    onMounted(() => {
+        On(Events.Camera.PhotoTaken, handlePhotoTaken);
+    });
+
+    onUnmounted(() => {
+        Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+    });
+    </script>
+
+    <template>
+      <button @click="captureProfilePicture">
+        Capture Profile Picture
+      </button>
+      <img v-if="photoPath" :src="photoPath" />
+    </template>
+    ```
+  </Tab>
+</Tabs>
+
+## Permissions
+
+Camera permission must be enabled in `config/nativephp.php`:
+
+```php
+'permissions' => [
+    'camera',
+],
+```
+
+If permission is denied, the `PermissionDenied` event will be fired instead of launching the camera.

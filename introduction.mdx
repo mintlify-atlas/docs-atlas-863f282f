@@ -1,0 +1,172 @@
+---
+title: NativePHP Mobile Camera Plugin
+description: Add native camera functionality to your NativePHP mobile apps with photo capture, video recording, and gallery picker support for Android and iOS.
+---
+
+## What is the NativePHP Mobile Camera Plugin?
+
+The Camera plugin for NativePHP Mobile provides seamless access to device camera capabilities, enabling you to capture photos, record videos, and select media from the gallery. Built specifically for mobile applications, it offers a unified API that works across both Android and iOS platforms.
+
+Whether you're building a social app, document scanner, or any application requiring media capture, this plugin delivers native performance with a Laravel-friendly developer experience.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card
+    title="Photo capture"
+    icon="camera"
+    href="/quickstart"
+  >
+    Take high-quality photos using the device camera with a simple, fluent API
+  </Card>
+  <Card
+    title="Video recording"
+    icon="video"
+    href="/api/video-recording"
+  >
+    Record videos with customizable duration limits and automatic format handling
+  </Card>
+  <Card
+    title="Gallery picker"
+    icon="images"
+    href="/api/gallery-picker"
+  >
+    Select single or multiple images and videos from the device photo library
+  </Card>
+  <Card
+    title="Event-driven"
+    icon="bolt"
+    href="/events/overview"
+  >
+    Respond to camera actions using Laravel events or JavaScript listeners
+  </Card>
+  <Card
+    title="Cross-platform"
+    icon="mobile"
+  >
+    Single codebase works seamlessly on Android (API 33+) and iOS (18.2+)
+  </Card>
+  <Card
+    title="Dual API support"
+    icon="code"
+    href="/examples/javascript-usage"
+  >
+    Use PHP facades for Livewire/Blade or JavaScript API for Vue/React/Inertia
+  </Card>
+</CardGroup>
+
+## How it works
+
+The Camera plugin bridges native mobile camera functionality with your Laravel application through NativePHP's communication layer. When you call `Camera::getPhoto()`, the plugin:
+
+1. Requests camera permissions (if not already granted)
+2. Opens the native camera interface
+3. Captures the photo using platform-specific APIs
+4. Saves it to app storage
+5. Fires a `PhotoTaken` event with the file path
+
+This event-driven architecture keeps your code clean and responsive, allowing you to handle media asynchronously without blocking the UI.
+
+## Quick example
+
+<CodeGroup>
+
+```php PHP (Livewire)
+use Native\Mobile\Facades\Camera;
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Camera\PhotoTaken;
+
+class ProfilePhoto extends Component
+{
+    public $photoPath = null;
+
+    public function capturePhoto()
+    {
+        Camera::getPhoto();
+    }
+
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhoto(string $path)
+    {
+        $this->photoPath = $path;
+        $this->uploadToServer($path);
+    }
+}
+```
+
+```javascript JavaScript (Vue)
+import { Camera, On, Events } from '#nativephp';
+import { ref, onMounted, onUnmounted } from 'vue';
+
+const photoPath = ref('');
+
+const capturePhoto = async () => {
+  await Camera.getPhoto().id('profile-pic');
+};
+
+const handlePhoto = (payload) => {
+  photoPath.value = payload.path;
+  uploadToServer(payload.path);
+};
+
+onMounted(() => {
+  On(Events.Camera.PhotoTaken, handlePhoto);
+});
+
+onUnmounted(() => {
+  Off(Events.Camera.PhotoTaken, handlePhoto);
+});
+```
+
+</CodeGroup>
+
+## Platform support
+
+<Note>
+  The Camera plugin requires minimum platform versions:
+  - **Android:** API level 33 (Android 13)
+  - **iOS:** Version 18.2 or higher
+</Note>
+
+### Required permissions
+
+The plugin automatically handles permission requests for:
+
+- Camera access (photos and videos)
+- Microphone access (video recording with audio)
+- Photo library access (gallery picker)
+
+Permissions are requested at runtime when users first access camera features.
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card
+    title="Installation"
+    icon="download"
+    href="/installation"
+  >
+    Install the plugin via Composer and register it with NativePHP
+  </Card>
+  <Card
+    title="Quickstart guide"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Build your first photo capture feature in under 5 minutes
+  </Card>
+  <Card
+    title="API reference"
+    icon="book"
+    href="/api/overview"
+  >
+    Explore the complete Camera API documentation
+  </Card>
+  <Card
+    title="Events"
+    icon="bell"
+    href="/events/overview"
+  >
+    Learn how to handle camera events in PHP and JavaScript
+  </Card>
+</CardGroup>

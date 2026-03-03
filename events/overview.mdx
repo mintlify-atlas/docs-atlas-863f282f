@@ -1,0 +1,197 @@
+---
+title: Event System Overview
+description: Understanding how to listen for camera events in NativePHP
+---
+
+The Camera plugin uses an event-driven architecture to notify your application when camera operations complete. Events are fired for photos, videos, and gallery selections, and can be handled in both PHP and JavaScript.
+
+## Event Classes
+
+The plugin fires the following events:
+
+- **Photo Events**
+  - `Native\Mobile\Events\Camera\PhotoTaken` - Photo captured successfully
+  - `Native\Mobile\Events\Camera\PhotoCancelled` - User cancelled photo capture
+
+- **Video Events**
+  - `Native\Mobile\Events\Camera\VideoRecorded` - Video recorded successfully
+  - `Native\Mobile\Events\Camera\VideoCancelled` - User cancelled video recording
+
+- **Gallery Events**
+  - `Native\Mobile\Events\Gallery\MediaSelected` - Media selected from gallery
+
+- **Permission Events**
+  - `Native\Mobile\Events\Camera\PermissionDenied` - Camera permission denied
+
+## Listening in PHP
+
+Use the `#[OnNative]` attribute to listen for events in your Livewire components:
+
+```php
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Camera\PhotoTaken;
+
+class PhotoCapture extends Component
+{
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhotoTaken(string $path)
+    {
+        // Process the captured photo
+        $this->photoPath = $path;
+    }
+}
+```
+
+### Method Parameters
+
+Event handler methods receive the event payload as parameters. The parameters vary by event type - see the individual event pages for details.
+
+## Listening in JavaScript
+
+Use the `On` and `Off` functions to listen for events in Vue, React, or other JavaScript frameworks:
+
+### Vue Example
+
+```js
+import { On, Off, Events } from '#nativephp';
+import { ref, onMounted, onUnmounted } from 'vue';
+
+const photoPath = ref('');
+
+const handlePhotoTaken = (payload) => {
+    photoPath.value = payload.path;
+    processPhoto(payload.path);
+};
+
+onMounted(() => {
+    On(Events.Camera.PhotoTaken, handlePhotoTaken);
+});
+
+onUnmounted(() => {
+    Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+});
+```
+
+### React Example
+
+```js
+import { On, Off, Events } from '#nativephp';
+import { useEffect, useState } from 'react';
+
+function PhotoCapture() {
+    const [photoPath, setPhotoPath] = useState('');
+
+    useEffect(() => {
+        const handlePhotoTaken = (payload) => {
+            setPhotoPath(payload.path);
+            processPhoto(payload.path);
+        };
+
+        On(Events.Camera.PhotoTaken, handlePhotoTaken);
+
+        return () => {
+            Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+        };
+    }, []);
+
+    return <div>{photoPath}</div>;
+}
+```
+
+### Event Constants
+
+The `Events.Camera` object provides constants for all camera events:
+
+```js
+Events.Camera.PhotoTaken
+Events.Camera.PhotoCancelled
+Events.Camera.VideoRecorded
+Events.Camera.VideoCancelled
+Events.Gallery.MediaSelected
+Events.Camera.PermissionDenied
+```
+
+## Event Payloads
+
+All events provide a payload object with relevant data. In PHP, payload properties are passed as individual method parameters. In JavaScript, the entire payload is passed as a single object.
+
+### Tracking with IDs
+
+You can pass an optional `id` when triggering camera operations to correlate events with specific actions:
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Facades\Camera;
+
+    // Set an ID when capturing
+    Camera::getPhoto()->id('profile-pic')->start();
+
+    // Receive the ID in the event
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhotoTaken(string $path, ?string $id = null)
+    {
+        if ($id === 'profile-pic') {
+            $this->updateProfilePicture($path);
+        }
+    }
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    import { Camera, On, Events } from '#nativephp';
+
+    // Set an ID when capturing
+    await Camera.getPhoto().id('profile-pic');
+
+    // Receive the ID in the event
+    On(Events.Camera.PhotoTaken, (payload) => {
+        if (payload.id === 'profile-pic') {
+            updateProfilePicture(payload.path);
+        }
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Best Practices
+
+### Always Clean Up Listeners
+
+In JavaScript, always remove event listeners when components unmount to prevent memory leaks:
+
+```js
+// Vue
+onUnmounted(() => {
+    Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+});
+
+// React
+return () => {
+    Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+};
+```
+
+### Handle Cancellation
+
+Users can cancel camera operations. Always handle cancellation events to provide appropriate feedback:
+
+```php
+#[OnNative(PhotoCancelled::class)]
+public function handlePhotoCancelled()
+{
+    $this->notify('Photo capture cancelled');
+}
+```
+
+### Check Permissions
+
+Handle permission denied events gracefully:
+
+```php
+#[OnNative(PermissionDenied::class)]
+public function handlePermissionDenied(string $action)
+{
+    $this->notify("Camera permission is required to {$action}");
+}
+```

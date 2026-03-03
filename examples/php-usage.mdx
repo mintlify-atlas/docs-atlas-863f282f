@@ -1,0 +1,493 @@
+---
+title: PHP Usage Examples
+description: Complete PHP and Livewire examples for the Camera plugin
+---
+
+These examples demonstrate how to use the Camera plugin in PHP/Livewire applications with complete event handling.
+
+## Taking Photos
+
+### Basic Photo Capture
+
+```php
+use Native\Mobile\Facades\Camera;
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Camera\PhotoTaken;
+use Livewire\Component;
+
+class ProfileEditor extends Component
+{
+    public $profilePhoto = null;
+    public $photoPath = null;
+
+    public function capturePhoto()
+    {
+        Camera::getPhoto();
+    }
+
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhotoTaken(string $path)
+    {
+        // Store the photo path
+        $this->photoPath = $path;
+        
+        // Process the captured photo
+        $this->processPhoto($path);
+        
+        // Notify user
+        $this->dispatch('photo-captured', path: $path);
+    }
+
+    private function processPhoto(string $path)
+    {
+        // Upload to storage or process as needed
+        $storedPath = Storage::putFileAs(
+            'profile-photos',
+            new File($path),
+            auth()->id() . '.jpg'
+        );
+        
+        // Update user profile
+        auth()->user()->update([
+            'profile_photo_path' => $storedPath
+        ]);
+        
+        $this->profilePhoto = $storedPath;
+    }
+
+    public function render()
+    {
+        return view('livewire.profile-editor');
+    }
+}
+```
+
+### Photo Capture with Preview
+
+```php
+use Native\Mobile\Facades\Camera;
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Camera\PhotoTaken;
+use Livewire\Component;
+
+class PhotoUploader extends Component
+{
+    public $photos = [];
+    public $previewUrl = null;
+
+    public function takeNewPhoto()
+    {
+        Camera::getPhoto();
+    }
+
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhotoTaken(string $path)
+    {
+        // Read the file and create a preview
+        $imageData = base64_encode(file_get_contents($path));
+        $this->previewUrl = 'data:image/jpeg;base64,' . $imageData;
+        
+        // Add to photos array
+        $this->photos[] = [
+            'path' => $path,
+            'preview' => $this->previewUrl,
+            'timestamp' => now(),
+        ];
+        
+        session()->flash('message', 'Photo captured successfully!');
+    }
+
+    public function savePhotos()
+    {
+        foreach ($this->photos as $photo) {
+            // Upload each photo to permanent storage
+            Storage::putFileAs(
+                'photos',
+                new File($photo['path']),
+                uniqid() . '.jpg'
+            );
+        }
+        
+        $this->photos = [];
+        session()->flash('message', 'All photos saved!');
+    }
+
+    public function render()
+    {
+        return view('livewire.photo-uploader');
+    }
+}
+```
+
+## Recording Videos
+
+### Basic Video Recording
+
+```php
+use Native\Mobile\Facades\Camera;
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Camera\VideoRecorded;
+use Native\Mobile\Events\Camera\VideoCancelled;
+use Livewire\Component;
+
+class VideoRecorder extends Component
+{
+    public $videoPath = null;
+    public $videoMimeType = null;
+    public $recordingId = null;
+
+    public function startRecording()
+    {
+        // Record video with 60 second max duration
+        Camera::recordVideo(['maxDuration' => 60]);
+    }
+
+    #[OnNative(VideoRecorded::class)]
+    public function handleVideoRecorded(string $path, string $mimeType, ?string $id)
+    {
+        $this->videoPath = $path;
+        $this->videoMimeType = $mimeType;
+        $this->recordingId = $id;
+        
+        // Process the recorded video
+        $this->processVideo($path, $mimeType);
+        
+        session()->flash('success', 'Video recorded successfully!');
+    }
+
+    #[OnNative(VideoCancelled::class)]
+    public function handleVideoCancelled()
+    {
+        session()->flash('message', 'Video recording was cancelled.');
+    }
+
+    private function processVideo(string $path, string $mimeType)
+    {
+        // Upload video to storage
+        $extension = $mimeType === 'video/mp4' ? 'mp4' : 'mov';
+        $filename = uniqid('video_') . '.' . $extension;
+        
+        Storage::putFileAs('videos', new File($path), $filename);
+    }
+
+    public function render()
+    {
+        return view('livewire.video-recorder');
+    }
+}
+```
+
+### Advanced Video Recording with Tracking
+
+```php
+use Native\Mobile\Facades\Camera;
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Camera\VideoRecorded;
+use Native\Mobile\Events\Camera\VideoCancelled;
+use Livewire\Component;
+
+class AdvancedVideoRecorder extends Component
+{
+    public $recordings = [];
+    public $currentRecordingId = null;
+
+    public function recordShortClip()
+    {
+        $id = 'short-clip-' . uniqid();
+        $this->currentRecordingId = $id;
+        
+        // Record with fluent API
+        Camera::recordVideo()
+            ->maxDuration(30)
+            ->id($id)
+            ->start();
+    }
+
+    public function recordLongClip()
+    {
+        $id = 'long-clip-' . uniqid();
+        $this->currentRecordingId = $id;
+        
+        Camera::recordVideo()
+            ->maxDuration(120)
+            ->id($id)
+            ->start();
+    }
+
+    #[OnNative(VideoRecorded::class)]
+    public function handleVideoRecorded(string $path, string $mimeType, ?string $id)
+    {
+        // Store recording details
+        $this->recordings[] = [
+            'id' => $id,
+            'path' => $path,
+            'mime_type' => $mimeType,
+            'recorded_at' => now(),
+            'filesize' => filesize($path),
+        ];
+        
+        // Save to database
+        $this->saveRecordingToDatabase($path, $mimeType, $id);
+        
+        $this->currentRecordingId = null;
+        
+        session()->flash('success', 'Video \'' . $id . '\' recorded successfully!');
+    }
+
+    #[OnNative(VideoCancelled::class)]
+    public function handleVideoCancelled()
+    {
+        $this->currentRecordingId = null;
+        session()->flash('message', 'Recording cancelled.');
+    }
+
+    private function saveRecordingToDatabase(string $path, string $mimeType, ?string $id)
+    {
+        $extension = $mimeType === 'video/mp4' ? 'mp4' : 'mov';
+        $filename = ($id ?? uniqid('video_')) . '.' . $extension;
+        
+        $storedPath = Storage::putFileAs('recordings', new File($path), $filename);
+        
+        auth()->user()->recordings()->create([
+            'identifier' => $id,
+            'path' => $storedPath,
+            'mime_type' => $mimeType,
+            'filesize' => filesize($path),
+        ]);
+    }
+
+    public function render()
+    {
+        return view('livewire.advanced-video-recorder');
+    }
+}
+```
+
+## Gallery Picker
+
+### Single Image Selection
+
+```php
+use Native\Mobile\Facades\Camera;
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Gallery\MediaSelected;
+use Livewire\Component;
+
+class ImagePicker extends Component
+{
+    public $selectedImage = null;
+
+    public function pickImage()
+    {
+        // Pick single image from gallery
+        Camera::pickImages('images', false);
+    }
+
+    #[OnNative(MediaSelected::class)]
+    public function handleMediaSelected($success, $files, $count)
+    {
+        if (!$success || empty($files)) {
+            session()->flash('error', 'No image selected.');
+            return;
+        }
+        
+        $file = $files[0];
+        $this->selectedImage = $file;
+        
+        // Process the selected image
+        $this->processImage($file);
+        
+        session()->flash('success', 'Image selected successfully!');
+    }
+
+    private function processImage($file)
+    {
+        // Upload to storage
+        $storedPath = Storage::putFileAs(
+            'selected-images',
+            new File($file),
+            uniqid() . '.jpg'
+        );
+        
+        // Update user preference or save to database
+        auth()->user()->update(['avatar' => $storedPath]);
+    }
+
+    public function render()
+    {
+        return view('livewire.image-picker');
+    }
+}
+```
+
+### Multiple Media Selection
+
+```php
+use Native\Mobile\Facades\Camera;
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Gallery\MediaSelected;
+use Livewire\Component;
+
+class MediaGalleryPicker extends Component
+{
+    public $selectedMedia = [];
+    public $mediaCount = 0;
+
+    public function pickMultipleImages()
+    {
+        // Pick multiple images
+        Camera::pickImages('images', true);
+    }
+
+    public function pickAnyMedia()
+    {
+        // Pick any media type (images, videos, etc.)
+        Camera::pickImages('all', true);
+    }
+
+    #[OnNative(MediaSelected::class)]
+    public function handleMediaSelected($success, $files, $count)
+    {
+        if (!$success) {
+            session()->flash('error', 'Media selection cancelled.');
+            return;
+        }
+        
+        $this->mediaCount = $count;
+        $this->selectedMedia = [];
+        
+        foreach ($files as $file) {
+            $this->selectedMedia[] = [
+                'path' => $file,
+                'type' => $this->detectMediaType($file),
+                'size' => filesize($file),
+            ];
+            
+            // Process each media item
+            $this->processMedia($file);
+        }
+        
+        session()->flash('success', "Successfully selected {$count} media items!");
+    }
+
+    private function detectMediaType($path)
+    {
+        $mimeType = mime_content_type($path);
+        
+        if (str_starts_with($mimeType, 'image/')) {
+            return 'image';
+        } elseif (str_starts_with($mimeType, 'video/')) {
+            return 'video';
+        }
+        
+        return 'unknown';
+    }
+
+    private function processMedia($file)
+    {
+        $mimeType = mime_content_type($file);
+        $extension = pathinfo($file, PATHINFO_EXTENSION);
+        $filename = uniqid() . '.' . $extension;
+        
+        if (str_starts_with($mimeType, 'image/')) {
+            Storage::putFileAs('media/images', new File($file), $filename);
+        } elseif (str_starts_with($mimeType, 'video/')) {
+            Storage::putFileAs('media/videos', new File($file), $filename);
+        }
+    }
+
+    public function render()
+    {
+        return view('livewire.media-gallery-picker');
+    }
+}
+```
+
+## Blade Template Examples
+
+### Photo Capture Component
+
+```blade
+<div>
+    <div class="space-y-4">
+        @if($previewUrl)
+            <div class="preview">
+                <img src="{{ $previewUrl }}" alt="Preview" class="w-full rounded-lg" />
+            </div>
+        @endif
+
+        <button 
+            wire:click="takeNewPhoto" 
+            class="btn btn-primary w-full"
+        >
+            Take Photo
+        </button>
+
+        @if(count($photos) > 0)
+            <button 
+                wire:click="savePhotos" 
+                class="btn btn-success w-full"
+            >
+                Save {{ count($photos) }} Photo(s)
+            </button>
+        @endif
+
+        @if(session()->has('message'))
+            <div class="alert alert-success">
+                {{ session('message') }}
+            </div>
+        @endif
+    </div>
+</div>
+```
+
+### Video Recording Component
+
+```blade
+<div>
+    <div class="space-y-4">
+        <div class="btn-group">
+            <button 
+                wire:click="recordShortClip" 
+                class="btn btn-primary"
+                wire:loading.attr="disabled"
+            >
+                Record Short (30s)
+            </button>
+            
+            <button 
+                wire:click="recordLongClip" 
+                class="btn btn-secondary"
+                wire:loading.attr="disabled"
+            >
+                Record Long (2min)
+            </button>
+        </div>
+
+        @if($currentRecordingId)
+            <div class="alert alert-info">
+                Recording in progress: {{ $currentRecordingId }}
+            </div>
+        @endif
+
+        @if(count($recordings) > 0)
+            <div class="recordings-list">
+                <h3>Recordings ({{ count($recordings) }})</h3>
+                @foreach($recordings as $recording)
+                    <div class="recording-item">
+                        <span>{{ $recording['id'] }}</span>
+                        <span>{{ number_format($recording['filesize'] / 1024 / 1024, 2) }} MB</span>
+                        <span>{{ $recording['recorded_at']->diffForHumans() }}</span>
+                    </div>
+                @endforeach
+            </div>
+        @endif
+
+        @if(session()->has('success'))
+            <div class="alert alert-success">
+                {{ session('success') }}
+            </div>
+        @endif
+    </div>
+</div>
+```

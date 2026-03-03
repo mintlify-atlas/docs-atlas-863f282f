@@ -1,0 +1,682 @@
+---
+title: JavaScript Usage Examples
+description: Complete Vue and React examples for the Camera plugin
+---
+
+These examples demonstrate how to use the Camera plugin in JavaScript applications with Vue, React, and Inertia.
+
+## Taking Photos
+
+### Basic Photo Capture (Vue)
+
+```vue
+<script setup>
+import { Camera, On, Off, Events } from '#nativephp';
+import { ref, onMounted, onUnmounted } from 'vue';
+
+const photoPath = ref('');
+const previewUrl = ref('');
+const isCapturing = ref(false);
+
+const capturePhoto = async () => {
+  isCapturing.value = true;
+  try {
+    await Camera.getPhoto();
+  } catch (error) {
+    console.error('Failed to capture photo:', error);
+    isCapturing.value = false;
+  }
+};
+
+const handlePhotoTaken = (payload) => {
+  photoPath.value = payload.path;
+  
+  // Create preview URL
+  fetch(payload.path)
+    .then(res => res.blob())
+    .then(blob => {
+      previewUrl.value = URL.createObjectURL(blob);
+    });
+  
+  isCapturing.value = false;
+  processPhoto(payload.path);
+};
+
+const processPhoto = (path) => {
+  // Upload to server or process as needed
+  fetch('/api/upload-photo', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+    headers: { 'Content-Type': 'application/json' },
+  }).then(response => response.json())
+    .then(data => {
+      console.log('Photo uploaded:', data);
+    });
+};
+
+onMounted(() => {
+  On(Events.Camera.PhotoTaken, handlePhotoTaken);
+});
+
+onUnmounted(() => {
+  Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value);
+  }
+});
+</script>
+
+<template>
+  <div class="photo-capture">
+    <div v-if="previewUrl" class="preview">
+      <img :src="previewUrl" alt="Captured photo" />
+    </div>
+    
+    <button 
+      @click="capturePhoto" 
+      :disabled="isCapturing"
+      class="capture-btn"
+    >
+      {{ isCapturing ? 'Capturing...' : 'Take Photo' }}
+    </button>
+  </div>
+</template>
+```
+
+### Photo Capture with Identifier (React)
+
+```jsx
+import { Camera, On, Off, Events } from '#nativephp';
+import { useState, useEffect } from 'react';
+
+function ProfilePhotoCapture() {
+  const [photoPath, setPhotoPath] = useState('');
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [isCapturing, setIsCapturing] = useState(false);
+
+  const captureProfilePhoto = async () => {
+    setIsCapturing(true);
+    try {
+      await Camera.getPhoto().id('profile-pic');
+    } catch (error) {
+      console.error('Failed to capture photo:', error);
+      setIsCapturing(false);
+    }
+  };
+
+  useEffect(() => {
+    const handlePhotoTaken = (payload) => {
+      setPhotoPath(payload.path);
+      setIsCapturing(false);
+      
+      // Create preview
+      fetch(payload.path)
+        .then(res => res.blob())
+        .then(blob => {
+          const url = URL.createObjectURL(blob);
+          setPreviewUrl(url);
+        });
+      
+      // Process photo
+      processPhoto(payload.path, payload.id);
+    };
+
+    On(Events.Camera.PhotoTaken, handlePhotoTaken);
+
+    return () => {
+      Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, []);
+
+  const processPhoto = (path, id) => {
+    console.log(`Processing photo with ID: ${id}`);
+    
+    // Upload to server
+    fetch('/api/profile/photo', {
+      method: 'POST',
+      body: JSON.stringify({ path, identifier: id }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  return (
+    <div className="profile-photo-capture">
+      {previewUrl && (
+        <div className="preview">
+          <img src={previewUrl} alt="Profile photo" />
+        </div>
+      )}
+      
+      <button 
+        onClick={captureProfilePhoto}
+        disabled={isCapturing}
+        className="capture-btn"
+      >
+        {isCapturing ? 'Capturing...' : 'Take Profile Photo'}
+      </button>
+    </div>
+  );
+}
+
+export default ProfilePhotoCapture;
+```
+
+## Recording Videos
+
+### Basic Video Recording (Vue)
+
+```vue
+<script setup>
+import { Camera, On, Off, Events } from '#nativephp';
+import { ref, onMounted, onUnmounted } from 'vue';
+
+const videoPath = ref('');
+const videoMimeType = ref('');
+const isRecording = ref(false);
+const recordingCancelled = ref(false);
+
+const startRecording = async () => {
+  isRecording.value = true;
+  recordingCancelled.value = false;
+  
+  try {
+    await Camera.recordVideo().maxDuration(60);
+  } catch (error) {
+    console.error('Failed to start recording:', error);
+    isRecording.value = false;
+  }
+};
+
+const handleVideoRecorded = (payload) => {
+  videoPath.value = payload.path;
+  videoMimeType.value = payload.mimeType;
+  isRecording.value = false;
+  
+  console.log('Video recorded:', payload);
+  processVideo(payload.path, payload.mimeType, payload.id);
+};
+
+const handleVideoCancelled = () => {
+  isRecording.value = false;
+  recordingCancelled.value = true;
+  console.log('Recording cancelled by user');
+};
+
+const processVideo = (path, mimeType, id) => {
+  // Upload video to server
+  fetch('/api/upload-video', {
+    method: 'POST',
+    body: JSON.stringify({ path, mimeType, id }),
+    headers: { 'Content-Type': 'application/json' },
+  });
+};
+
+onMounted(() => {
+  On(Events.Camera.VideoRecorded, handleVideoRecorded);
+  On(Events.Camera.VideoCancelled, handleVideoCancelled);
+});
+
+onUnmounted(() => {
+  Off(Events.Camera.VideoRecorded, handleVideoRecorded);
+  Off(Events.Camera.VideoCancelled, handleVideoCancelled);
+});
+</script>
+
+<template>
+  <div class="video-recorder">
+    <button 
+      @click="startRecording" 
+      :disabled="isRecording"
+      class="record-btn"
+    >
+      {{ isRecording ? 'Recording...' : 'Record Video (60s max)' }}
+    </button>
+    
+    <div v-if="videoPath" class="video-info">
+      <p>Video saved: {{ videoPath }}</p>
+      <p>Type: {{ videoMimeType }}</p>
+    </div>
+    
+    <div v-if="recordingCancelled" class="alert">
+      Recording was cancelled
+    </div>
+  </div>
+</template>
+```
+
+### Advanced Video Recording with Tracking (React)
+
+```jsx
+import { Camera, On, Off, Events } from '#nativephp';
+import { useState, useEffect } from 'react';
+
+function VideoRecorder() {
+  const [recordings, setRecordings] = useState([]);
+  const [currentRecording, setCurrentRecording] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+
+  const recordShortVideo = async () => {
+    const id = `short-${Date.now()}`;
+    setCurrentRecording({ id, type: 'short', maxDuration: 30 });
+    setIsRecording(true);
+    
+    try {
+      await Camera.recordVideo()
+        .maxDuration(30)
+        .id(id);
+    } catch (error) {
+      console.error('Failed to record:', error);
+      setIsRecording(false);
+      setCurrentRecording(null);
+    }
+  };
+
+  const recordLongVideo = async () => {
+    const id = `long-${Date.now()}`;
+    setCurrentRecording({ id, type: 'long', maxDuration: 120 });
+    setIsRecording(true);
+    
+    try {
+      await Camera.recordVideo()
+        .maxDuration(120)
+        .id(id);
+    } catch (error) {
+      console.error('Failed to record:', error);
+      setIsRecording(false);
+      setCurrentRecording(null);
+    }
+  };
+
+  useEffect(() => {
+    const handleVideoRecorded = (payload) => {
+      const recording = {
+        id: payload.id,
+        path: payload.path,
+        mimeType: payload.mimeType,
+        timestamp: new Date().toISOString(),
+      };
+      
+      setRecordings(prev => [...prev, recording]);
+      setIsRecording(false);
+      setCurrentRecording(null);
+      
+      // Process the video
+      uploadVideo(recording);
+    };
+
+    const handleVideoCancelled = () => {
+      setIsRecording(false);
+      setCurrentRecording(null);
+      console.log('Recording cancelled');
+    };
+
+    On(Events.Camera.VideoRecorded, handleVideoRecorded);
+    On(Events.Camera.VideoCancelled, handleVideoCancelled);
+
+    return () => {
+      Off(Events.Camera.VideoRecorded, handleVideoRecorded);
+      Off(Events.Camera.VideoCancelled, handleVideoCancelled);
+    };
+  }, []);
+
+  const uploadVideo = (recording) => {
+    fetch('/api/videos/upload', {
+      method: 'POST',
+      body: JSON.stringify(recording),
+      headers: { 'Content-Type': 'application/json' },
+    })
+      .then(res => res.json())
+      .then(data => {
+        console.log('Video uploaded:', data);
+      });
+  };
+
+  return (
+    <div className="video-recorder">
+      <div className="controls">
+        <button 
+          onClick={recordShortVideo}
+          disabled={isRecording}
+        >
+          Record Short (30s)
+        </button>
+        
+        <button 
+          onClick={recordLongVideo}
+          disabled={isRecording}
+        >
+          Record Long (2min)
+        </button>
+      </div>
+      
+      {isRecording && currentRecording && (
+        <div className="recording-status">
+          Recording: {currentRecording.id} 
+          (max {currentRecording.maxDuration}s)
+        </div>
+      )}
+      
+      <div className="recordings-list">
+        <h3>Recordings ({recordings.length})</h3>
+        {recordings.map(rec => (
+          <div key={rec.id} className="recording-item">
+            <span>{rec.id}</span>
+            <span>{rec.mimeType}</span>
+            <span>{new Date(rec.timestamp).toLocaleTimeString()}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default VideoRecorder;
+```
+
+## Gallery Picker
+
+### Image Picker (Vue)
+
+```vue
+<script setup>
+import { Camera, On, Off, Events } from '#nativephp';
+import { ref, onMounted, onUnmounted } from 'vue';
+
+const selectedImages = ref([]);
+const isPicking = ref(false);
+
+const pickSingleImage = async () => {
+  isPicking.value = true;
+  try {
+    await Camera.pickImages()
+      .images()
+      .single();
+  } catch (error) {
+    console.error('Failed to pick image:', error);
+    isPicking.value = false;
+  }
+};
+
+const pickMultipleImages = async () => {
+  isPicking.value = true;
+  try {
+    await Camera.pickImages()
+      .images()
+      .multiple()
+      .maxItems(5);
+  } catch (error) {
+    console.error('Failed to pick images:', error);
+    isPicking.value = false;
+  }
+};
+
+const handleMediaSelected = (payload) => {
+  isPicking.value = false;
+  
+  if (!payload.success) {
+    console.log('Image selection cancelled');
+    return;
+  }
+  
+  selectedImages.value = payload.files.map((file, index) => ({
+    id: `img-${Date.now()}-${index}`,
+    path: file,
+    selected: true,
+  }));
+  
+  console.log(`Selected ${payload.count} images`);
+  
+  // Process images
+  payload.files.forEach(processImage);
+};
+
+const processImage = (path) => {
+  // Upload to server
+  fetch('/api/images/upload', {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+    headers: { 'Content-Type': 'application/json' },
+  });
+};
+
+onMounted(() => {
+  On(Events.Gallery.MediaSelected, handleMediaSelected);
+});
+
+onUnmounted(() => {
+  Off(Events.Gallery.MediaSelected, handleMediaSelected);
+});
+</script>
+
+<template>
+  <div class="image-picker">
+    <div class="controls">
+      <button 
+        @click="pickSingleImage"
+        :disabled="isPicking"
+      >
+        Pick Single Image
+      </button>
+      
+      <button 
+        @click="pickMultipleImages"
+        :disabled="isPicking"
+      >
+        Pick Multiple Images (max 5)
+      </button>
+    </div>
+    
+    <div v-if="selectedImages.length > 0" class="selected-images">
+      <h3>Selected Images ({{ selectedImages.length }})</h3>
+      <div class="image-grid">
+        <div 
+          v-for="image in selectedImages" 
+          :key="image.id"
+          class="image-item"
+        >
+          {{ image.path }}
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+```
+
+### Media Picker with Multiple Types (React)
+
+```jsx
+import { Camera, On, Off, Events } from '#nativephp';
+import { useState, useEffect } from 'react';
+
+function MediaPicker() {
+  const [selectedMedia, setSelectedMedia] = useState([]);
+  const [isPicking, setIsPicking] = useState(false);
+  const [mediaCount, setMediaCount] = useState(0);
+
+  const pickImages = async () => {
+    setIsPicking(true);
+    try {
+      await Camera.pickImages()
+        .images()
+        .multiple();
+    } catch (error) {
+      console.error('Failed to pick images:', error);
+      setIsPicking(false);
+    }
+  };
+
+  const pickAnyMedia = async () => {
+    setIsPicking(true);
+    try {
+      await Camera.pickImages()
+        .all()
+        .multiple()
+        .maxItems(10);
+    } catch (error) {
+      console.error('Failed to pick media:', error);
+      setIsPicking(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleMediaSelected = (payload) => {
+      setIsPicking(false);
+      
+      if (!payload.success) {
+        console.log('Media selection cancelled');
+        return;
+      }
+      
+      setMediaCount(payload.count);
+      
+      const media = payload.files.map((file, index) => ({
+        id: `media-${Date.now()}-${index}`,
+        path: file,
+        type: detectMediaType(file),
+      }));
+      
+      setSelectedMedia(media);
+      
+      // Process each media file
+      media.forEach(item => processMedia(item));
+    };
+
+    On(Events.Gallery.MediaSelected, handleMediaSelected);
+
+    return () => {
+      Off(Events.Gallery.MediaSelected, handleMediaSelected);
+    };
+  }, []);
+
+  const detectMediaType = (path) => {
+    const ext = path.split('.').pop().toLowerCase();
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) {
+      return 'image';
+    } else if (['mp4', 'mov', 'avi', 'webm'].includes(ext)) {
+      return 'video';
+    }
+    return 'unknown';
+  };
+
+  const processMedia = (media) => {
+    fetch('/api/media/upload', {
+      method: 'POST',
+      body: JSON.stringify(media),
+      headers: { 'Content-Type': 'application/json' },
+    })
+      .then(res => res.json())
+      .then(data => {
+        console.log('Media uploaded:', data);
+      });
+  };
+
+  return (
+    <div className="media-picker">
+      <div className="controls">
+        <button 
+          onClick={pickImages}
+          disabled={isPicking}
+        >
+          {isPicking ? 'Picking...' : 'Pick Images'}
+        </button>
+        
+        <button 
+          onClick={pickAnyMedia}
+          disabled={isPicking}
+        >
+          {isPicking ? 'Picking...' : 'Pick Any Media (max 10)'}
+        </button>
+      </div>
+      
+      {mediaCount > 0 && (
+        <div className="media-info">
+          Selected {mediaCount} media items
+        </div>
+      )}
+      
+      <div className="media-list">
+        {selectedMedia.map(media => (
+          <div key={media.id} className="media-item">
+            <span className="media-type">{media.type}</span>
+            <span className="media-path">{media.path}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default MediaPicker;
+```
+
+## Inertia.js Example
+
+### Photo Upload with Inertia
+
+```jsx
+import { Camera, On, Off, Events } from '#nativephp';
+import { useEffect, useState } from 'react';
+import { useForm } from '@inertiajs/react';
+
+function ProfilePhotoUpload() {
+  const [photoPath, setPhotoPath] = useState('');
+  const { data, setData, post, processing } = useForm({
+    photo_path: '',
+  });
+
+  const capturePhoto = async () => {
+    try {
+      await Camera.getPhoto().id('profile-photo');
+    } catch (error) {
+      console.error('Failed to capture photo:', error);
+    }
+  };
+
+  useEffect(() => {
+    const handlePhotoTaken = (payload) => {
+      setPhotoPath(payload.path);
+      setData('photo_path', payload.path);
+    };
+
+    On(Events.Camera.PhotoTaken, handlePhotoTaken);
+
+    return () => {
+      Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+    };
+  }, []);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    post('/profile/photo');
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <button 
+        type="button"
+        onClick={capturePhoto}
+        className="capture-btn"
+      >
+        Capture Photo
+      </button>
+      
+      {photoPath && (
+        <div className="preview">
+          <p>Photo ready: {photoPath}</p>
+          <button 
+            type="submit" 
+            disabled={processing}
+          >
+            {processing ? 'Uploading...' : 'Upload Photo'}
+          </button>
+        </div>
+      )}
+    </form>
+  );
+}
+
+export default ProfilePhotoUpload;
+```

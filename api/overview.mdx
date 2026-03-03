@@ -1,0 +1,187 @@
+---
+title: API Overview
+description: Complete reference for the Camera API in both PHP and JavaScript
+---
+
+The Camera API provides access to the device's camera for taking photos, recording videos, and selecting media from the gallery. It's available in both PHP (for Livewire/Blade) and JavaScript (for Vue/React/Inertia).
+
+## Installation
+
+Install the plugin via Composer:
+
+```shell
+composer require nativephp/mobile-camera
+```
+
+Register the plugin:
+
+```shell
+php artisan native:plugin:register nativephp/mobile-camera
+```
+
+## Core Functions
+
+The Camera API provides three main functions:
+
+### Photo Capture
+
+Capture a photo using the device camera.
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Facades\Camera;
+
+    Camera::getPhoto();
+
+    // With identifier
+    Camera::getPhoto(['id' => 'profile-pic']);
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    import { Camera } from '#nativephp';
+
+    await Camera.getPhoto();
+
+    // With identifier
+    await Camera.getPhoto()
+        .id('profile-pic');
+    ```
+  </Tab>
+</Tabs>
+
+### Video Recording
+
+Record a video with the device camera.
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Facades\Camera;
+
+    Camera::recordVideo();
+
+    // With max duration (seconds)
+    Camera::recordVideo(['maxDuration' => 30]);
+
+    // Using fluent API
+    Camera::recordVideo()
+        ->maxDuration(60)
+        ->id('my-video-123')
+        ->start();
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    import { Camera } from '#nativephp';
+
+    await Camera.recordVideo();
+
+    // With max duration
+    await Camera.recordVideo()
+        .maxDuration(60);
+    ```
+  </Tab>
+</Tabs>
+
+### Gallery Picker
+
+Select images or videos from the device gallery.
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Facades\Camera;
+
+    // Single image
+    Camera::pickImages('images', false);
+
+    // Multiple images
+    Camera::pickImages('images', true);
+
+    // Any media type
+    Camera::pickImages('all', true);
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    import { Camera } from '#nativephp';
+
+    // Pick images
+    await Camera.pickImages()
+        .images()
+        .multiple()
+        .maxItems(5);
+    ```
+  </Tab>
+</Tabs>
+
+## Events
+
+All camera operations return results via events:
+
+- `PhotoTaken` - Fired when a photo is captured
+- `PhotoCancelled` - Fired when photo capture is cancelled
+- `VideoRecorded` - Fired when a video is recorded
+- `VideoCancelled` - Fired when video recording is cancelled
+- `MediaSelected` - Fired when media is selected from gallery
+- `PermissionDenied` - Fired when camera permission is denied
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\PhotoTaken;
+
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhotoTaken(string $path)
+    {
+        // Process the captured photo
+        $this->processPhoto($path);
+    }
+    ```
+  </Tab>
+  <Tab title="Vue">
+    ```js
+    import { On, Off, Events } from '#nativephp';
+    import { ref, onMounted, onUnmounted } from 'vue';
+
+    const photoPath = ref('');
+
+    const handlePhotoTaken = (payload) => {
+        photoPath.value = payload.path;
+        processPhoto(payload.path);
+    };
+
+    onMounted(() => {
+        On(Events.Camera.PhotoTaken, handlePhotoTaken);
+    });
+
+    onUnmounted(() => {
+        Off(Events.Camera.PhotoTaken, handlePhotoTaken);
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Storage Locations
+
+**Photos:**
+- **Android:** App cache directory at `{cache}/captured.jpg`
+- **iOS:** Application Support at `~/Library/Application Support/Photos/captured.jpg`
+
+**Videos:**
+- **Android:** App cache directory at `{cache}/video_{timestamp}.mp4`
+- **iOS:** Application Support at `~/Library/Application Support/Videos/captured_video_{timestamp}.mp4`
+
+## Permissions
+
+You must enable the `camera` permission in `config/nativephp.php` to use camera features. Camera permission is required for photos, videos, AND QR/barcode scanning.
+
+If permission is denied, camera functions will fail silently and fire a `PermissionDenied` event.
+
+## File Formats
+
+- **Photos:** JPEG format
+- **Videos:** MP4 format

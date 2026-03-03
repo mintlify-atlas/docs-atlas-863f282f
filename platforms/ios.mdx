@@ -1,0 +1,265 @@
+---
+title: iOS Platform
+description: iOS-specific configuration and implementation details for the NativePHP Mobile Camera plugin
+---
+
+## Overview
+
+The Camera plugin for iOS is implemented in Swift and provides native camera functionality through Apple's AVFoundation and PhotosUI frameworks. The plugin requires specific Info.plist entries, minimum iOS version, and proper permission handling.
+
+## Requirements
+
+### Minimum iOS Version
+
+The Camera plugin requires **iOS 18.2** or higher.
+
+```json
+"min_version": "18.2"
+```
+
+<Warning>
+iOS 18.2 is a relatively recent version. Ensure your target audience has compatible devices before deploying apps using this plugin.
+</Warning>
+
+### Required Info.plist Keys
+
+The following privacy usage descriptions must be added to your app's `Info.plist`. These are automatically configured when the plugin is registered:
+
+```xml
+<key>NSCameraUsageDescription</key>
+<string>This app requires camera access to take photos and videos.</string>
+
+<key>NSMicrophoneUsageDescription</key>
+<string>This app requires microphone access to record video with audio.</string>
+
+<key>NSPhotoLibraryUsageDescription</key>
+<string>This app requires photo library access to select media.</string>
+```
+
+<Note>
+You can customize these descriptions in your `nativephp.json` configuration to match your app's specific use case and provide clearer context to users.
+</Note>
+
+## Storage Locations
+
+Media captured by the camera is stored in the app's temporary directory:
+
+### Photos
+
+**Location:** `~/Library/Application Support/Photos/captured.jpg`
+
+Actual implementation uses the **temporary directory**:
+
+```swift
+let tempDir = FileManager.default.temporaryDirectory
+let filename = "captured_photo_\(timestamp).jpg"
+let fileURL = tempDir.appendingPathComponent(filename)
+```
+
+- Format: JPEG with 0.9 compression quality
+- Unique filename with timestamp: `captured_photo_{timestamp}.jpg`
+- Excluded from iCloud/iTunes backup
+
+### Videos
+
+**Location:** `~/Library/Application Support/Videos/captured_video_{timestamp}.mp4`
+
+Actual implementation uses the **temporary directory**:
+
+```swift
+let tempDir = FileManager.default.temporaryDirectory
+let filename = "captured_video_\(timestamp).mp4"
+let fileURL = tempDir.appendingPathComponent(filename)
+```
+
+- Format: MP4 (High quality)
+- Unique filename with timestamp in milliseconds
+- Excluded from iCloud/iTunes backup
+- Files are moved (not copied) for better performance
+
+### Gallery Selections
+
+**Location:** `{temp}/Gallery/gallery_selected_{timestamp}_{index}.{ext}`
+
+Files picked from the gallery are copied to:
+
+```swift
+let galleryDir = tempDir.appendingPathComponent("Gallery", isDirectory: true)
+let fileName = "gallery_selected_\(timestamp)_\(index).\(fileExtension)"
+```
+
+<Note>
+Files in the temporary directory may be purged by iOS when storage is low. Copy files to permanent storage (Documents or Application Support) if you need long-term persistence.
+</Note>
+
+## Permission Handling
+
+The iOS implementation includes sophisticated permission handling for camera and microphone access:
+
+### Permission States
+
+The plugin checks `AVCaptureDevice.authorizationStatus(for: .video)` and handles all states:
+
+1. **Authorized** - Proceed immediately
+2. **Not Determined** - Request permission, then proceed if granted
+3. **Denied/Restricted** - Fire `PermissionDenied` event
+
+### Permission Denied Event
+
+When camera access is denied, the plugin fires:
+
+```swift
+let eventClass = "Native\\Mobile\\Events\\Camera\\PermissionDenied"
+var payload: [String: Any] = ["action": "photo"] // or "video"
+if let id = id {
+    payload["id"] = id
+}
+LaravelBridge.shared.send?(eventClass, payload)
+```
+
+Handle this in your app:
+
+```php
+use Native\Mobile\Events\Camera\PermissionDenied;
+
+#[OnNative(PermissionDenied::class)]
+public function handlePermissionDenied(string $action, ?string $id)
+{
+    // Prompt user to enable camera in Settings
+    if ($action === 'photo') {
+        // Handle photo permission denial
+    }
+}
+```
+
+## Implementation Details
+
+### Frameworks Used
+
+The iOS implementation uses the following Apple frameworks:
+
+```swift
+import Foundation
+import UIKit
+import AVFoundation
+import UniformTypeIdentifiers
+import PhotosUI
+```
+
+- **AVFoundation** - Camera and video capture
+- **PhotosUI** - Modern photo picker (PHPickerViewController)
+- **UniformTypeIdentifiers** - File type management
+
+### UIImagePickerController
+
+For photo and video capture, the plugin uses `UIImagePickerController`:
+
+```swift
+let picker = UIImagePickerController()
+picker.sourceType = .camera
+picker.mediaTypes = [UTType.image.identifier]
+picker.cameraCaptureMode = .photo
+picker.delegate = CameraPhotoDelegate.shared
+```
+
+### PHPickerViewController
+
+For gallery selection, the modern `PHPickerViewController` is used:
+
+```swift
+var configuration = PHPickerConfiguration()
+configuration.filter = .images // or .videos, or .any(of: [.images, .videos])
+configuration.selectionLimit = multiple ? maxItems : 1
+
+let picker = PHPickerViewController(configuration: configuration)
+picker.delegate = self
+```
+
+### Async Processing
+
+File operations are performed on background queues to avoid blocking the UI:
+
+```swift
+DispatchQueue.global(qos: .utility).async {
+    // Save/copy file operations
+    
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+        // Fire event on main thread
+        LaravelBridge.shared.send?(eventClass, payload)
+    }
+}
+```
+
+## Platform-Specific Considerations
+
+### Video Duration Limits
+
+Set maximum video duration using `UIImagePickerController.videoMaximumDuration`:
+
+```swift
+if let duration = maxDuration, duration > 0 {
+    picker.videoMaximumDuration = TimeInterval(duration)
+}
+```
+
+### Video Quality
+
+Videos are captured at high quality by default:
+
+```swift
+picker.videoQuality = .typeHigh
+```
+
+### MIME Type Detection
+
+The plugin automatically detects MIME types for gallery selections:
+
+```swift
+private func getMimeType(for fileExtension: String) -> String {
+    switch fileExtension.lowercased() {
+    case "jpg", "jpeg": return "image/jpeg"
+    case "png": return "image/png"
+    case "mp4": return "video/mp4"
+    case "mov": return "video/quicktime"
+    // ... more types
+    default: return "application/octet-stream"
+    }
+}
+```
+
+### Camera Availability Check
+
+The plugin verifies camera availability before presenting the picker:
+
+```swift
+guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+    print("❌ Camera not available")
+    return
+}
+```
+
+<Warning>
+The iOS Simulator does not have camera support. Always test camera functionality on physical devices.
+</Warning>
+
+## Dependencies
+
+The plugin has no external dependencies beyond the iOS SDK.
+
+```json
+"dependencies": {
+    "swift_packages": [],
+    "pods": []
+}
+```
+
+All required functionality is provided by Apple's native frameworks.
+
+## Events
+
+All camera operations on iOS fire the same events as documented in the main API, with the following iOS-specific behaviors:
+
+- Events are always fired on the main thread
+- Events include a 0.1-second delay after file operations to ensure UI readiness
+- Cancel events fire immediately when users dismiss the picker
+- Permission denied events fire before attempting to show the camera

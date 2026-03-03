@@ -1,0 +1,242 @@
+---
+title: Permissions
+description: Configure camera, microphone, and photo library permissions for Android and iOS
+---
+
+The Camera plugin requires specific permissions to access the device's camera, microphone, and photo library. These permissions must be properly configured for each platform.
+
+## Required Permissions
+
+The plugin requires different permissions depending on the features you use:
+
+| Feature | Android Permissions | iOS Permissions |
+|---------|-------------------|----------------|
+| **Photo Capture** | `CAMERA` | `NSCameraUsageDescription` |
+| **Video Recording** | `CAMERA`, `RECORD_AUDIO` | `NSCameraUsageDescription`, `NSMicrophoneUsageDescription` |
+| **Gallery Picker** | None (picker handles it) | `NSPhotoLibraryUsageDescription` |
+
+## Android Permissions
+
+The plugin automatically declares these permissions in `nativephp.json`:
+
+```json
+{
+  "android": {
+    "min_version": 33,
+    "permissions": [
+      "android.permission.CAMERA",
+      "android.permission.RECORD_AUDIO",
+      "android.permission.FOREGROUND_SERVICE",
+      "android.permission.FOREGROUND_SERVICE_SHORT_SERVICE"
+    ]
+  }
+}
+```
+
+### Permission Details
+
+<AccordionGroup>
+  <Accordion title="android.permission.CAMERA">
+    **Required for**: Photo capture and video recording
+    
+    **Runtime permission**: Yes (user must grant)
+    
+    Allows access to the device's camera hardware.
+  </Accordion>
+
+  <Accordion title="android.permission.RECORD_AUDIO">
+    **Required for**: Video recording with audio
+    
+    **Runtime permission**: Yes (user must grant)
+    
+    Allows recording audio during video capture.
+  </Accordion>
+
+  <Accordion title="android.permission.FOREGROUND_SERVICE">
+    **Required for**: Background video recording
+    
+    **Runtime permission**: No
+    
+    Allows the app to run a foreground service for uninterrupted video recording.
+  </Accordion>
+
+  <Accordion title="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE">
+    **Required for**: Short-duration foreground service
+    
+    **Runtime permission**: No
+    
+    Android 13+ requirement for short-lived foreground services.
+  </Accordion>
+</AccordionGroup>
+
+### Minimum SDK Version
+
+The plugin requires **Android API 33** (Android 13.0) or higher.
+
+```json
+"min_version": 33
+```
+
+## iOS Permissions
+
+The plugin automatically configures these Info.plist keys:
+
+```json
+{
+  "ios": {
+    "min_version": "18.2",
+    "info_plist": {
+      "NSCameraUsageDescription": "This app requires camera access to take photos and videos.",
+      "NSMicrophoneUsageDescription": "This app requires microphone access to record video with audio.",
+      "NSPhotoLibraryUsageDescription": "This app requires photo library access to select media."
+    }
+  }
+}
+```
+
+### Usage Descriptions
+
+<AccordionGroup>
+  <Accordion title="NSCameraUsageDescription">
+    **Required for**: Photo capture and video recording
+    
+    **Default message**: "This app requires camera access to take photos and videos."
+    
+    This message is shown to users when the app requests camera access.
+  </Accordion>
+
+  <Accordion title="NSMicrophoneUsageDescription">
+    **Required for**: Video recording with audio
+    
+    **Default message**: "This app requires microphone access to record video with audio."
+    
+    This message is shown when the app requests microphone access for video recording.
+  </Accordion>
+
+  <Accordion title="NSPhotoLibraryUsageDescription">
+    **Required for**: Gallery picker
+    
+    **Default message**: "This app requires photo library access to select media."
+    
+    This message is shown when using the gallery picker to select existing media.
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+  You should customize these messages to explain why YOUR app needs these permissions. Users are more likely to grant permissions when they understand the reason.
+</Tip>
+
+### Minimum iOS Version
+
+The plugin requires **iOS 18.2** or higher.
+
+```json
+"min_version": "18.2"
+```
+
+## Permission Handling
+
+### Automatic Permission Requests
+
+The plugin automatically requests permissions when needed:
+
+1. **First time** - User sees permission dialog
+2. **Granted** - Camera/gallery opens normally
+3. **Denied** - `PermissionDenied` event fires
+
+### Handling Permission Denial
+
+Listen for the `PermissionDenied` event to handle denial gracefully:
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\PermissionDenied;
+
+    #[OnNative(PermissionDenied::class)]
+    public function handlePermissionDenied($action, $id = null)
+    {
+        // Show user-friendly message
+        $this->dispatch('notify', [
+            'message' => 'Camera permission is required to take photos.',
+            'action' => 'Open Settings'
+        ]);
+    }
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```javascript
+    import { On, Events } from '#nativephp';
+
+    On(Events.Camera.PermissionDenied, (payload) => {
+        alert('Camera permission is required to take photos.');
+        // Optionally guide user to settings
+    });
+    ```
+  </Tab>
+</Tabs>
+
+### Permission Denied Payload
+
+The `PermissionDenied` event includes:
+
+<ResponseField name="action" type="string">
+  The action that was attempted (`"photo"`, `"video"`, or `"gallery"`)
+</ResponseField>
+
+<ResponseField name="id" type="string" optional>
+  The optional identifier if one was provided via `id()` method
+</ResponseField>
+
+## Testing Permissions
+
+### Reset Permissions for Testing
+
+<Tabs>
+  <Tab title="Android">
+    ```bash
+    # Reset all permissions for your app
+    adb shell pm reset-permissions com.yourapp.package
+
+    # Or uninstall and reinstall
+    adb uninstall com.yourapp.package
+    ```
+  </Tab>
+  <Tab title="iOS">
+    Go to **Settings → Privacy & Security → Camera** (or Microphone/Photos) and toggle your app off/on.
+    
+    Or reset all permissions:
+    **Settings → General → Transfer or Reset → Reset → Reset Location & Privacy**
+  </Tab>
+</Tabs>
+
+## Configuration in NativePHP
+
+<Warning>
+  You must enable the `camera` permission in your `config/nativephp.php` configuration file for the plugin to work.
+</Warning>
+
+```php
+// config/nativephp.php
+
+return [
+    'permissions' => [
+        'camera' => true,  // Required!
+        // ...
+    ],
+];
+```
+
+Without this configuration, camera functions will fail silently.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Events" icon="bolt" href="/concepts/events">
+    Learn about the event-driven architecture
+  </Card>
+  <Card title="Storage" icon="database" href="/concepts/storage">
+    Understand where captured media is stored
+  </Card>
+</CardGroup>

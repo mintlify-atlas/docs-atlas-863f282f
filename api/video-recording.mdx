@@ -1,0 +1,420 @@
+---
+title: Video Recording
+description: Record videos using the device camera with Camera.recordVideo()
+---
+
+Record a video using the device camera. The video is automatically saved to the app's storage and the file path is returned via the `VideoRecorded` event.
+
+## Basic Usage
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Facades\Camera;
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\VideoRecorded;
+
+    // Record a video
+    Camera::recordVideo();
+
+    // Handle the result
+    #[OnNative(VideoRecorded::class)]
+    public function handleVideoRecorded(string $path, string $mimeType, ?string $id = null)
+    {
+        // Process the recorded video
+        $this->videoPath = $path;
+        $this->processVideo($path);
+    }
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```js
+    import { Camera, On, Events } from '#nativephp';
+
+    // Record a video
+    await Camera.recordVideo();
+
+    // Handle the result
+    On(Events.Camera.VideoRecorded, (payload) => {
+        console.log('Video recorded:', payload.path);
+        processVideo(payload.path);
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Parameters
+
+<ParamField path="maxDuration" type="int" optional>
+  Maximum recording duration in seconds. If not specified, the recording can continue until the user stops it.
+
+  <Tabs>
+    <Tab title="PHP">
+      ```php
+      // Array syntax
+      Camera::recordVideo(['maxDuration' => 30]);
+
+      // Fluent API
+      Camera::recordVideo()
+          ->maxDuration(60)
+          ->start();
+      ```
+    </Tab>
+    <Tab title="JavaScript">
+      ```js
+      await Camera.recordVideo()
+          .maxDuration(60);
+      ```
+    </Tab>
+  </Tabs>
+</ParamField>
+
+<ParamField path="id" type="string" optional>
+  Optional identifier to track this specific video recording. This ID will be included in the event payload.
+
+  <Tabs>
+    <Tab title="PHP">
+      ```php
+      // Array syntax
+      Camera::recordVideo(['id' => 'my-video-123']);
+
+      // Fluent API
+      Camera::recordVideo()
+          ->id('my-video-123')
+          ->start();
+      ```
+    </Tab>
+    <Tab title="JavaScript">
+      ```js
+      await Camera.recordVideo()
+          .id('my-video-123');
+      ```
+    </Tab>
+  </Tabs>
+</ParamField>
+
+<ParamField path="event" type="string" optional>
+  Custom event class to fire when the video is recorded. Defaults to `Native\Mobile\Events\Camera\VideoRecorded`.
+
+  <Tabs>
+    <Tab title="PHP">
+      ```php
+      // Array syntax
+      Camera::recordVideo(['event' => 'App\\Events\\CustomVideoEvent']);
+
+      // Fluent API
+      Camera::recordVideo()
+          ->event('App\\Events\\CustomVideoEvent')
+          ->start();
+      ```
+    </Tab>
+    <Tab title="JavaScript">
+      ```js
+      await Camera.recordVideo()
+          .event('App\\Events\\CustomVideoEvent');
+      ```
+    </Tab>
+  </Tabs>
+</ParamField>
+
+## PendingVideoRecorder API
+
+When using the fluent API in PHP, `Camera::recordVideo()` returns a `PendingVideoRecorder` instance that provides the following methods:
+
+### maxDuration()
+
+```php
+public function maxDuration(int $seconds): self
+```
+
+Set the maximum recording duration in seconds.
+
+```php
+Camera::recordVideo()
+    ->maxDuration(60)
+    ->start();
+```
+
+### id()
+
+```php
+public function id(string $id): self
+```
+
+Set a unique identifier for this recording to correlate with events.
+
+```php
+Camera::recordVideo()
+    ->id('my-video-123')
+    ->start();
+```
+
+### event()
+
+```php
+public function event(string $eventClass): self
+```
+
+Set a custom event class to dispatch when recording completes.
+
+```php
+Camera::recordVideo()
+    ->event('App\\Events\\CustomVideoEvent')
+    ->start();
+```
+
+### remember()
+
+```php
+public function remember(): self
+```
+
+Store the recorder's ID in the session for later retrieval.
+
+```php
+Camera::recordVideo()
+    ->id('my-video-123')
+    ->remember()
+    ->start();
+```
+
+### start()
+
+```php
+public function start(): void
+```
+
+Explicitly start the video recording. This method is automatically called when using the fluent API.
+
+```php
+Camera::recordVideo()
+    ->maxDuration(60)
+    ->id('my-video-123')
+    ->start();
+```
+
+## Events
+
+### VideoRecorded
+
+Fired when a video is successfully recorded.
+
+**Event Class:** `Native\Mobile\Events\Camera\VideoRecorded`
+
+**Payload:**
+
+<ParamField path="path" type="string">
+  File path to the recorded video (MP4 format)
+</ParamField>
+
+<ParamField path="mimeType" type="string">
+  Video MIME type (default: `video/mp4`)
+</ParamField>
+
+<ParamField path="id" type="string" optional>
+  Optional identifier if set via the `id` parameter
+</ParamField>
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\VideoRecorded;
+
+    #[OnNative(VideoRecorded::class)]
+    public function handleVideoRecorded(
+        string $path,
+        string $mimeType,
+        ?string $id = null
+    ) {
+        if ($id === 'my-video-123') {
+            $this->uploadVideo($path);
+        }
+    }
+    ```
+  </Tab>
+  <Tab title="Vue">
+    ```js
+    import { On, Off, Events } from '#nativephp';
+
+    On(Events.Camera.VideoRecorded, (payload) => {
+        console.log('Video:', payload.path);
+        console.log('MIME:', payload.mimeType);
+        console.log('ID:', payload.id);
+    });
+    ```
+  </Tab>
+</Tabs>
+
+### VideoCancelled
+
+Fired when the user cancels video recording.
+
+**Event Class:** `Native\Mobile\Events\Camera\VideoCancelled`
+
+**Payload:**
+
+<ParamField path="cancelled" type="boolean">
+  Always `true`
+</ParamField>
+
+<ParamField path="id" type="string" optional>
+  Optional identifier if set via the `id` parameter
+</ParamField>
+
+### PermissionDenied
+
+Fired when camera permission is denied.
+
+**Event Class:** `Native\Mobile\Events\Camera\PermissionDenied`
+
+**Payload:**
+
+<ParamField path="action" type="string">
+  Always `"video"` for video recording
+</ParamField>
+
+<ParamField path="id" type="string" optional>
+  Optional identifier if set via the `id` parameter
+</ParamField>
+
+## Storage Location
+
+**Android:** App cache directory at `{cache}/video_{timestamp}.mp4`
+
+**iOS:** Temporary directory at `~/Library/Temporary/captured_video_{timestamp}.mp4`
+
+Videos are saved in MP4 format with high quality settings.
+
+## Example: Video Upload with Progress
+
+<Tabs>
+  <Tab title="PHP (Livewire)">
+    ```php
+    use Native\Mobile\Facades\Camera;
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\VideoRecorded;
+    use Native\Mobile\Events\Camera\VideoCancelled;
+    use Livewire\Component;
+
+    class VideoUploadComponent extends Component
+    {
+        public $videoPath;
+        public $isRecording = false;
+
+        public function startRecording()
+        {
+            $this->isRecording = true;
+            Camera::recordVideo()
+                ->maxDuration(60)
+                ->id('upload-video')
+                ->start();
+        }
+
+        #[OnNative(VideoRecorded::class)]
+        public function handleVideoRecorded(
+            string $path,
+            string $mimeType,
+            ?string $id = null
+        ) {
+            if ($id === 'upload-video') {
+                $this->isRecording = false;
+                $this->videoPath = $path;
+                $this->uploadToServer($path);
+            }
+        }
+
+        #[OnNative(VideoCancelled::class)]
+        public function handleVideoCancelled(?string $id = null)
+        {
+            if ($id === 'upload-video') {
+                $this->isRecording = false;
+            }
+        }
+
+        private function uploadToServer(string $path)
+        {
+            // Upload video to your server
+            $response = Http::attach(
+                'video',
+                file_get_contents($path),
+                'video.mp4'
+            )->post('/api/videos');
+        }
+    }
+    ```
+  </Tab>
+  <Tab title="Vue">
+    ```vue
+    <script setup>
+    import { Camera, On, Off, Events } from '#nativephp';
+    import { ref, onMounted, onUnmounted } from 'vue';
+
+    const videoPath = ref('');
+    const isRecording = ref(false);
+
+    const startRecording = async () => {
+        isRecording.value = true;
+        await Camera.recordVideo()
+            .maxDuration(60)
+            .id('upload-video');
+    };
+
+    const handleVideoRecorded = (payload) => {
+        if (payload.id === 'upload-video') {
+            isRecording.value = false;
+            videoPath.value = payload.path;
+            uploadToServer(payload.path);
+        }
+    };
+
+    const handleVideoCancelled = (payload) => {
+        if (payload.id === 'upload-video') {
+            isRecording.value = false;
+        }
+    };
+
+    const uploadToServer = async (path) => {
+        const formData = new FormData();
+        const response = await fetch(path);
+        const blob = await response.blob();
+        formData.append('video', blob, 'video.mp4');
+
+        await axios.post('/api/videos', formData);
+    };
+
+    onMounted(() => {
+        On(Events.Camera.VideoRecorded, handleVideoRecorded);
+        On(Events.Camera.VideoCancelled, handleVideoCancelled);
+    });
+
+    onUnmounted(() => {
+        Off(Events.Camera.VideoRecorded, handleVideoRecorded);
+        Off(Events.Camera.VideoCancelled, handleVideoCancelled);
+    });
+    </script>
+
+    <template>
+      <div>
+        <button @click="startRecording" :disabled="isRecording">
+          {{ isRecording ? 'Recording...' : 'Start Recording' }}
+        </button>
+        <video v-if="videoPath" :src="videoPath" controls />
+      </div>
+    </template>
+    ```
+  </Tab>
+</Tabs>
+
+## Permissions
+
+Camera and microphone permissions must be enabled in `config/nativephp.php`:
+
+```php
+'permissions' => [
+    'camera',
+    'microphone',  // Required for video with audio
+],
+```
+
+If permission is denied, the `PermissionDenied` event will be fired instead of launching the camera.

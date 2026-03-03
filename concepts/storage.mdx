@@ -1,0 +1,358 @@
+---
+title: Storage
+description: Understand where photos and videos are stored on Android and iOS
+---
+
+When you capture photos or videos, the Camera plugin stores them in platform-specific temporary locations. Understanding these storage paths is important for file management and cleanup.
+
+## Storage Locations
+
+The plugin uses different storage locations for each platform and media type:
+
+### Photos
+
+<Tabs>
+  <Tab title="Android">
+    **Location**: App cache directory
+    
+    **Path**: `{cache}/captured.jpg`
+    
+    **Format**: JPEG
+    
+    The `{cache}` directory is typically:
+    ```
+    /data/data/com.yourapp.package/cache/
+    ```
+    
+    <Note>
+      Android photos are stored in the cache directory and may be cleared by the system when storage is low.
+    </Note>
+  </Tab>
+  <Tab title="iOS">
+    **Location**: Temporary directory
+    
+    **Path**: `~/Library/Application Support/Photos/captured.jpg`
+    
+    **Format**: JPEG
+    
+    The full path is:
+    ```
+    /var/mobile/Containers/Data/Application/[UUID]/Library/Application Support/Photos/captured.jpg
+    ```
+    
+    <Note>
+      iOS photos use a temporary directory with timestamped filenames like `captured_photo_1234567890.jpg`.
+    </Note>
+  </Tab>
+</Tabs>
+
+### Videos
+
+<Tabs>
+  <Tab title="Android">
+    **Location**: App cache directory
+    
+    **Path**: `{cache}/video_{timestamp}.mp4`
+    
+    **Format**: MP4
+    
+    Example:
+    ```
+    /data/data/com.yourapp.package/cache/video_1234567890.mp4
+    ```
+    
+    The timestamp is Unix time in milliseconds.
+  </Tab>
+  <Tab title="iOS">
+    **Location**: Temporary directory
+    
+    **Path**: `~/Library/Application Support/Videos/captured_video_{timestamp}.mp4`
+    
+    **Format**: MP4 (or MOV depending on system)
+    
+    Example:
+    ```
+    /var/mobile/Containers/Data/.../Library/Application Support/Videos/captured_video_1234567890.mp4
+    ```
+    
+    The timestamp ensures unique filenames for multiple recordings.
+  </Tab>
+</Tabs>
+
+## File Formats
+
+| Media Type | Android Format | iOS Format |
+|-----------|---------------|------------|
+| **Photo** | JPEG (.jpg) | JPEG (.jpg) |
+| **Video** | MP4 (.mp4) | MP4 (.mp4) or MOV (.mov) |
+
+### Compression
+
+- **Photos**: JPEG with 90% quality on iOS (configurable in native code)
+- **Videos**: System default compression (typically H.264 codec)
+
+## Temporary Storage
+
+<Warning>
+  All captured media is stored in **temporary directories** that may be cleared by the system. You must move or upload files to permanent storage if you need to keep them.
+</Warning>
+
+### When Files May Be Deleted
+
+- **Android**: When system needs to free up cache space
+- **iOS**: When temporary directory is cleaned (typically on app restart or system cleanup)
+- **Both platforms**: When app is uninstalled
+
+## Processing Captured Files
+
+### Move to Permanent Storage
+
+After receiving a file via event, move it to permanent storage:
+
+<Tabs>
+  <Tab title="PHP">
+    ```php
+    use Illuminate\Support\Facades\Storage;
+    use Native\Mobile\Attributes\OnNative;
+    use Native\Mobile\Events\Camera\PhotoTaken;
+
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhotoTaken(string $path)
+    {
+        // Read temporary file
+        $contents = file_get_contents($path);
+        
+        // Store permanently
+        $filename = 'photos/' . uniqid() . '.jpg';
+        Storage::disk('local')->put($filename, $contents);
+        
+        // Optional: Delete temporary file
+        @unlink($path);
+        
+        $this->savedPhotoPath = $filename;
+    }
+    ```
+  </Tab>
+  <Tab title="JavaScript">
+    ```javascript
+    import { On, Events } from '#nativephp';
+
+    On(Events.Camera.PhotoTaken, async (payload) => {
+        // Upload to server
+        const formData = new FormData();
+        const blob = await fetch(payload.path).then(r => r.blob());
+        formData.append('photo', blob, 'photo.jpg');
+        
+        await fetch('/api/photos/upload', {
+            method: 'POST',
+            body: formData
+        });
+    });
+    ```
+  </Tab>
+</Tabs>
+
+### Upload to Cloud Storage
+
+```php
+use Illuminate\Support\Facades\Storage;
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Camera\VideoRecorded;
+
+#[OnNative(VideoRecorded::class)]
+public function handleVideoRecorded(string $path, string $mimeType)
+{
+    // Upload to S3
+    $filename = 'videos/' . uniqid() . '.mp4';
+    
+    Storage::disk('s3')->put(
+        $filename,
+        file_get_contents($path),
+        ['ContentType' => $mimeType]
+    );
+    
+    // Clean up temporary file
+    @unlink($path);
+    
+    $this->videoUrl = Storage::disk('s3')->url($filename);
+}
+```
+
+## File Metadata
+
+### Extracting Metadata
+
+```php
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Camera\PhotoTaken;
+
+#[OnNative(PhotoTaken::class)]
+public function handlePhotoTaken(string $path)
+{
+    $fileInfo = [
+        'path' => $path,
+        'size' => filesize($path),
+        'mime_type' => mime_content_type($path),
+        'created_at' => filectime($path),
+        'modified_at' => filemtime($path),
+    ];
+    
+    // For images, get dimensions
+    if (str_starts_with($fileInfo['mime_type'], 'image/')) {
+        $dimensions = getimagesize($path);
+        $fileInfo['width'] = $dimensions[0];
+        $fileInfo['height'] = $dimensions[1];
+    }
+    
+    Log::info('Photo captured', $fileInfo);
+}
+```
+
+## Gallery Picker Storage
+
+When using the gallery picker, selected files are copied to temporary storage:
+
+<Tabs>
+  <Tab title="Android">
+    Files are copied to cache directory with pattern:
+    ```
+    {cache}/gallery_selected_{timestamp}_{index}.{ext}
+    ```
+  </Tab>
+  <Tab title="iOS">
+    Files are copied to a Gallery subdirectory:
+    ```
+    {temp}/Gallery/gallery_selected_{timestamp}_{index}.{ext}
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  Gallery selections are also temporary. Process and move them to permanent storage immediately.
+</Note>
+
+## Best Practices
+
+<Steps>
+  <Step title="Process files immediately">
+    Don't wait to process captured files. Handle them in your event listener right away.
+  </Step>
+  
+  <Step title="Move or upload to permanent storage">
+    Temporary files may be deleted at any time. Always save them to permanent storage or upload to your server.
+  </Step>
+  
+  <Step title="Clean up temporary files">
+    After successfully saving/uploading, delete the temporary file to free up space.
+  </Step>
+  
+  <Step title="Handle large video files">
+    Videos can be large. Consider streaming uploads or background processing for better UX.
+  </Step>
+  
+  <Step title="Validate file existence">
+    Always check if the file exists before processing, as temporary storage is not guaranteed.
+  </Step>
+</Steps>
+
+## Storage Limits
+
+### Android Cache Limits
+
+- No fixed limit, but system may clear cache when storage is low
+- Typical cache size: 50-100 MB before system cleanup
+- Videos can be large (tens of MB per minute)
+
+### iOS Temporary Storage
+
+- Limited by available device storage
+- System may clear temp files periodically
+- Apps should clean up their own temporary files
+
+<Warning>
+  Video files can quickly consume storage. A 1-minute video at high quality can be 20-50 MB. Always process and clean up videos promptly.
+</Warning>
+
+## Example: Complete Storage Workflow
+
+```php
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
+use Native\Mobile\Attributes\OnNative;
+use Native\Mobile\Events\Camera\PhotoTaken;
+use Native\Mobile\Events\Camera\VideoRecorded;
+
+class MediaUploadComponent extends Component
+{
+    public $uploadProgress = 0;
+    public $uploadedUrl = null;
+
+    #[OnNative(PhotoTaken::class)]
+    public function handlePhotoTaken(string $path)
+    {
+        try {
+            // Validate file exists
+            if (!file_exists($path)) {
+                throw new \Exception('Photo file not found');
+            }
+
+            // Get file info
+            $size = filesize($path);
+            $mimeType = mime_content_type($path);
+
+            // Generate unique filename
+            $filename = 'photos/' . uniqid() . '.jpg';
+
+            // Upload to S3 with progress tracking
+            Storage::disk('s3')->put(
+                $filename,
+                file_get_contents($path),
+                ['ContentType' => $mimeType]
+            );
+
+            // Get public URL
+            $this->uploadedUrl = Storage::disk('s3')->url($filename);
+
+            // Clean up temporary file
+            @unlink($path);
+
+            Log::info('Photo uploaded', [
+                'filename' => $filename,
+                'size' => $size,
+                'url' => $this->uploadedUrl
+            ]);
+
+            $this->dispatch('notify', ['success' => 'Photo uploaded!']);
+
+        } catch (\Exception $e) {
+            Log::error('Photo upload failed', ['error' => $e->getMessage()]);
+            $this->dispatch('notify', ['error' => 'Upload failed']);
+        }
+    }
+
+    #[OnNative(VideoRecorded::class)]
+    public function handleVideoRecorded(string $path, string $mimeType)
+    {
+        try {
+            // Videos are larger - upload in background
+            dispatch(new UploadVideoJob($path, $mimeType));
+            
+            $this->dispatch('notify', ['info' => 'Uploading video...']);
+
+        } catch (\Exception $e) {
+            Log::error('Video upload failed', ['error' => $e->getMessage()]);
+        }
+    }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the complete API documentation
+  </Card>
+  <Card title="Examples" icon="flask" href="/examples/php-usage">
+    See complete storage workflow examples
+  </Card>
+</CardGroup>

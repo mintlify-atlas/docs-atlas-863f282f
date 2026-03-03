@@ -1,0 +1,86 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "NativePHP Mobile Camera",
+  "projectDescription": "Camera plugin for NativePHP Mobile providing photo capture, video recording, and gallery picker functionality",
+  "theme": "palm",
+  "primaryColor": "#6366F1",
+  "lightColor": "#818CF8",
+  "darkColor": "#4338CA",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "installation",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "concepts/architecture",
+          "concepts/permissions",
+          "concepts/events",
+          "concepts/storage"
+        ]
+      },
+      {
+        "group": "API Reference",
+        "pages": [
+          "api/overview",
+          "api/photo-capture",
+          "api/video-recording",
+          "api/gallery-picker"
+        ]
+      },
+      {
+        "group": "Events",
+        "pages": [
+          "events/overview",
+          "events/photo-events",
+          "events/video-events",
+          "events/gallery-events"
+        ]
+      },
+      {
+        "group": "Platform Specifics",
+        "pages": [
+          "platforms/android",
+          "platforms/ios"
+        ]
+      },
+      {
+        "group": "Examples",
+        "pages": [
+          "examples/php-usage",
+          "examples/javascript-usage",
+          "examples/complete-workflows"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Photo capture with device camera",
+    "Video recording with customizable duration",
+    "Gallery media picker (single/multiple selection)",
+    "Event-driven architecture with Laravel events",
+    "Cross-platform support (Android & iOS)",
+    "Permission handling for camera and microphone",
+    "Fluent API for both PHP and JavaScript"
+  ],
+  "publicApiSurface": [
+    "Camera::getPhoto() - Capture photos",
+    "Camera::recordVideo() - Record videos",
+    "Camera::pickImages() - Pick from gallery",
+    "Camera.GetPhoto (Bridge) - Native photo capture",
+    "Camera.RecordVideo (Bridge) - Native video recording",
+    "Camera.PickMedia (Bridge) - Native gallery picker",
+    "PhotoTaken Event",
+    "PhotoCancelled Event",
+    "VideoRecorded Event",
+    "VideoCancelled Event",
+    "MediaSelected Event",
+    "PermissionDenied Event"
+  ]
+}

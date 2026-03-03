@@ -15,33 +15,33 @@ The plugin uses different storage locations for each platform and media type:
   <Tab title="Android">
     **Location**: App cache directory
     
-    **Path**: `{cache}/captured.jpg`
+    **Path**: `{cache}/captured_{timestamp}.jpg`
     
     **Format**: JPEG
     
     The `{cache}` directory is typically:
     ```
-    /data/data/com.yourapp.package/cache/
+    /data/data/com.yourapp.package/cache/captured_1234567890123.jpg
     ```
     
     <Note>
-      Android photos are stored in the cache directory and may be cleared by the system when storage is low.
+      Android photos are stored in the cache directory with Unix timestamps and may be cleared by the system when storage is low.
     </Note>
   </Tab>
   <Tab title="iOS">
     **Location**: Temporary directory
     
-    **Path**: `~/Library/Application Support/Photos/captured.jpg`
+    **Path**: `{temp}/captured_photo_{timestamp}.jpg`
     
     **Format**: JPEG
     
-    The full path is:
+    The `{temp}` directory is typically:
     ```
-    /var/mobile/Containers/Data/Application/[UUID]/Library/Application Support/Photos/captured.jpg
+    /var/mobile/Containers/Data/Application/[UUID]/tmp/
     ```
     
     <Note>
-      iOS photos use a temporary directory with timestamped filenames like `captured_photo_1234567890.jpg`.
+      iOS photos use timestamped filenames like `captured_photo_1234567890123.jpg` to ensure uniqueness.
     </Note>
   </Tab>
 </Tabs>
@@ -66,16 +66,16 @@ The plugin uses different storage locations for each platform and media type:
   <Tab title="iOS">
     **Location**: Temporary directory
     
-    **Path**: `~/Library/Application Support/Videos/captured_video_{timestamp}.mp4`
+    **Path**: `{temp}/captured_video_{timestamp}.{ext}`
     
-    **Format**: MP4 (or MOV depending on system)
+    **Format**: MP4 or MOV (depends on device recording format)
     
     Example:
     ```
-    /var/mobile/Containers/Data/.../Library/Application Support/Videos/captured_video_1234567890.mp4
+    /var/mobile/Containers/Data/Application/[UUID]/tmp/captured_video_1234567890123.mp4
     ```
     
-    The timestamp ensures unique filenames for multiple recordings.
+    The timestamp (Unix time in milliseconds) ensures unique filenames for multiple recordings.
   </Tab>
 </Tabs>
 

@@ -46,34 +46,41 @@ Media captured by the camera is stored in the app's temporary directory:
 
 ### Photos
 
-**Location:** `~/Library/Application Support/Photos/captured.jpg`
+**Location:** Temporary directory at `{temp}/captured_photo_{timestamp}.jpg`
 
-Actual implementation uses the **temporary directory**:
+Implementation:
 
 ```swift
 let tempDir = FileManager.default.temporaryDirectory
+let timestamp = Int(Date().timeIntervalSince1970 * 1000)
 let filename = "captured_photo_\(timestamp).jpg"
 let fileURL = tempDir.appendingPathComponent(filename)
 ```
 
+Typical path: `/var/mobile/Containers/Data/Application/[UUID]/tmp/captured_photo_1234567890123.jpg`
+
 - Format: JPEG with 0.9 compression quality
-- Unique filename with timestamp: `captured_photo_{timestamp}.jpg`
+- Unique filename with Unix timestamp in milliseconds
 - Excluded from iCloud/iTunes backup
 
 ### Videos
 
-**Location:** `~/Library/Application Support/Videos/captured_video_{timestamp}.mp4`
+**Location:** Temporary directory at `{temp}/captured_video_{timestamp}.{ext}`
 
-Actual implementation uses the **temporary directory**:
+Implementation:
 
 ```swift
 let tempDir = FileManager.default.temporaryDirectory
-let filename = "captured_video_\(timestamp).mp4"
+let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+let fileExtension = videoURL.pathExtension.isEmpty ? "mp4" : videoURL.pathExtension
+let filename = "captured_video_\(timestamp).\(fileExtension)"
 let fileURL = tempDir.appendingPathComponent(filename)
 ```
 
-- Format: MP4 (High quality)
-- Unique filename with timestamp in milliseconds
+Typical path: `/var/mobile/Containers/Data/Application/[UUID]/tmp/captured_video_1234567890123.mp4`
+
+- Format: MP4 or MOV (depends on device)
+- Unique filename with Unix timestamp in milliseconds
 - Excluded from iCloud/iTunes backup
 - Files are moved (not copied) for better performance
 

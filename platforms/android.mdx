@@ -55,10 +55,11 @@ Media captured by the camera is stored in the app's cache directory:
 
 ### Photos
 
-**Location:** `{cache}/captured.jpg`
+**Location:** `{cache}/captured_{timestamp}.jpg`
 
 - Format: JPEG
-- Stored in the app's cache directory
+- Filename includes Unix timestamp in milliseconds
+- Example: `/data/data/com.yourapp.package/cache/captured_1234567890123.jpg`
 - Automatically cleaned up by the system when storage is low
 
 ### Videos
